@@ -1,6 +1,7 @@
 """Unit tests for the query planner."""
 
 from edb.core.models import ColumnDefinition, ColumnType, TableSchema
+
 from edb.query.models import QueryType
 from edb.query.parser import QueryParser
 from edb.query.planner import QueryPlanner
@@ -42,10 +43,14 @@ def test_planner_sql_insert(db):
     parser = QueryParser()
     planner = QueryPlanner(db)
 
-    query = parser.parse({
-        "type": "sql", "action": "insert", "table": "items",
-        "data": {"id": 1, "name": "Widget"},
-    })
+    query = parser.parse(
+        {
+            "type": "sql",
+            "action": "insert",
+            "table": "items",
+            "data": {"id": 1, "name": "Widget"},
+        }
+    )
     result = planner.execute(query)
 
     assert result.success
@@ -56,17 +61,25 @@ def test_planner_document_insert_and_find(db):
     parser = QueryParser()
     planner = QueryPlanner(db)
 
-    insert_q = parser.parse({
-        "type": "document", "action": "insert", "collection": "logs",
-        "data": {"event": "login", "user": "alice"},
-    })
+    insert_q = parser.parse(
+        {
+            "type": "document",
+            "action": "insert",
+            "collection": "logs",
+            "data": {"event": "login", "user": "alice"},
+        }
+    )
     result = planner.execute(insert_q)
     assert result.success
 
-    find_q = parser.parse({
-        "type": "document", "action": "find", "collection": "logs",
-        "filter": {"event": "login"},
-    })
+    find_q = parser.parse(
+        {
+            "type": "document",
+            "action": "find",
+            "collection": "logs",
+            "filter": {"event": "login"},
+        }
+    )
     result = planner.execute(find_q)
     assert result.success
     assert result.row_count == 1
@@ -76,9 +89,14 @@ def test_planner_kv_set_and_get(db):
     parser = QueryParser()
     planner = QueryPlanner(db)
 
-    set_q = parser.parse({
-        "type": "kv", "action": "set", "key": "config", "value": {"theme": "dark"},
-    })
+    set_q = parser.parse(
+        {
+            "type": "kv",
+            "action": "set",
+            "key": "config",
+            "value": {"theme": "dark"},
+        }
+    )
     result = planner.execute(set_q)
     assert result.success
 
@@ -92,9 +110,13 @@ def test_planner_error_handling(db):
     parser = QueryParser()
     planner = QueryPlanner(db)
 
-    query = parser.parse({
-        "type": "sql", "action": "select", "table": "nonexistent_table",
-    })
+    query = parser.parse(
+        {
+            "type": "sql",
+            "action": "select",
+            "table": "nonexistent_table",
+        }
+    )
     result = planner.execute(query)
     assert not result.success
     assert result.error is not None

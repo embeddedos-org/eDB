@@ -19,23 +19,27 @@ def test_parse_sql_select(parser):
 
 
 def test_parse_sql_insert(parser):
-    query = parser.parse({
-        "type": "sql",
-        "action": "insert",
-        "table": "users",
-        "data": {"name": "Alice"},
-    })
+    query = parser.parse(
+        {
+            "type": "sql",
+            "action": "insert",
+            "table": "users",
+            "data": {"name": "Alice"},
+        }
+    )
     assert query.sql.action == "insert"
     assert query.sql.data == {"name": "Alice"}
 
 
 def test_parse_document_find(parser):
-    query = parser.parse({
-        "type": "document",
-        "action": "find",
-        "collection": "logs",
-        "filter": {"level": "error"},
-    })
+    query = parser.parse(
+        {
+            "type": "document",
+            "action": "find",
+            "collection": "logs",
+            "filter": {"level": "error"},
+        }
+    )
     assert query.type == QueryType.DOCUMENT
     assert query.document.action == "find"
     assert query.document.filter == {"level": "error"}
@@ -78,10 +82,12 @@ def test_parse_missing_table(parser):
 
 
 def test_parse_raw_sql_no_table(parser):
-    query = parser.parse({
-        "type": "sql",
-        "action": "raw",
-        "raw_sql": "SELECT 1",
-    })
+    query = parser.parse(
+        {
+            "type": "sql",
+            "action": "raw",
+            "raw_sql": "SELECT 1",
+        }
+    )
     assert query.sql.action == "raw"
     assert query.sql.raw_sql == "SELECT 1"

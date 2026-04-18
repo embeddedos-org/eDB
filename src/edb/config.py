@@ -17,6 +17,11 @@ class EDBConfig(BaseSettings):
     api_port: int = Field(default=8000, description="API server port")
     api_reload: bool = Field(default=False, description="Enable auto-reload for development")
 
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000"],
+        description="List of allowed CORS origins",
+    )
+
     jwt_secret: str = Field(
         default="edb-secret-change-me-in-production",
         description="Secret key for JWT token signing",

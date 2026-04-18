@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -69,7 +69,7 @@ def execute_sql(
             username=user.get("username"),
             details={"sql": request.sql[:200]},
         )
-        return result.model_dump()
+        return cast(dict[str, Any], result.model_dump())
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

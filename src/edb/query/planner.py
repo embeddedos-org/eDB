@@ -168,9 +168,7 @@ class QueryPlanner:
                     data=doc.model_dump(mode="json"),
                     row_count=1,
                 )
-            return UnifiedQueryResult(
-                query_type=QueryType.DOCUMENT, data=None, row_count=0
-            )
+            return UnifiedQueryResult(query_type=QueryType.DOCUMENT, data=None, row_count=0)
 
         elif q.action == "insert":
             if not q.data:
@@ -279,9 +277,7 @@ class QueryPlanner:
 
         elif q.action == "list":
             keys = store.list_keys(q.prefix)
-            return UnifiedQueryResult(
-                query_type=QueryType.KV, data=keys, row_count=len(keys)
-            )
+            return UnifiedQueryResult(query_type=QueryType.KV, data=keys, row_count=len(keys))
 
         elif q.action == "exists":
             if not q.key:
@@ -289,15 +285,11 @@ class QueryPlanner:
                     success=False, query_type=QueryType.KV, error="Exists requires 'key'"
                 )
             exists = store.exists(q.key)
-            return UnifiedQueryResult(
-                query_type=QueryType.KV, data={"exists": exists}, row_count=1
-            )
+            return UnifiedQueryResult(query_type=QueryType.KV, data={"exists": exists}, row_count=1)
 
         elif q.action == "count":
             cnt = store.count()
-            return UnifiedQueryResult(
-                query_type=QueryType.KV, data={"count": cnt}, row_count=cnt
-            )
+            return UnifiedQueryResult(query_type=QueryType.KV, data={"count": cnt}, row_count=cnt)
 
         return UnifiedQueryResult(
             success=False, query_type=QueryType.KV, error=f"Unknown KV action: {q.action}"

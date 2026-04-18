@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -58,7 +58,7 @@ def insert_document(
         user_id=user.get("sub"),
         details={"collection": collection, "doc_id": doc.id},
     )
-    return doc.model_dump(mode="json")
+    return cast(dict[str, Any], doc.model_dump(mode="json"))
 
 
 @router.post("/{collection}/find")
@@ -75,10 +75,10 @@ def find_documents(
         limit=request.limit,
         offset=request.offset,
     )
-    return {
+    return cast(dict[str, Any], {
         "documents": [d.model_dump(mode="json") for d in docs],
         "count": len(docs),
-    }
+    })
 
 
 @router.get("/{collection}/{doc_id}")
@@ -92,7 +92,7 @@ def get_document(
     doc = state.database.docs.find_by_id(collection, doc_id)
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    return doc.model_dump(mode="json")
+    return cast(dict[str, Any], doc.model_dump(mode="json"))
 
 
 @router.put("/{collection}/{doc_id}")
@@ -113,7 +113,7 @@ def update_document(
         user_id=user.get("sub"),
         details={"collection": collection, "doc_id": doc_id},
     )
-    return doc.model_dump(mode="json")
+    return cast(dict[str, Any], doc.model_dump(mode="json"))
 
 
 @router.delete("/{collection}/{doc_id}")

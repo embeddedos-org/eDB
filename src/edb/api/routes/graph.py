@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -39,7 +39,7 @@ def add_node(
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_WRITE))],
 ) -> dict[str, Any]:
     node = state.database.graph.add_node(request.label, request.properties, request.node_id)
-    return node
+    return cast(dict[str, Any], node)
 
 
 @router.get("/nodes/{node_id}")
@@ -51,7 +51,7 @@ def get_node(
     node = state.database.graph.get_node(node_id)
     if node is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Node not found")
-    return node
+    return cast(dict[str, Any], node)
 
 
 @router.get("/nodes")
@@ -62,7 +62,7 @@ def find_nodes(
     limit: int = 100,
 ) -> dict[str, Any]:
     nodes = state.database.graph.find_nodes(label, limit)
-    return {"nodes": nodes, "count": len(nodes)}
+    return cast(dict[str, Any], {"nodes": nodes, "count": len(nodes)})
 
 
 @router.delete("/nodes/{node_id}")
@@ -84,9 +84,12 @@ def add_edge(
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_WRITE))],
 ) -> dict[str, Any]:
     edge = state.database.graph.add_edge(
-        request.source_id, request.target_id, request.relationship, request.properties,
+        request.source_id,
+        request.target_id,
+        request.relationship,
+        request.properties,
     )
-    return edge
+    return cast(dict[str, Any], edge)
 
 
 @router.get("/nodes/{node_id}/edges")

@@ -8,9 +8,14 @@ def test_health(app_client):
 
 
 def test_register_and_login(app_client):
-    resp = app_client.post("/auth/register", json={
-        "username": "testuser", "password": "testpass123", "role": "read_write",
-    })
+    resp = app_client.post(
+        "/auth/register",
+        json={
+            "username": "testuser",
+            "password": "testpass123",
+            "role": "read_write",
+        },
+    )
     assert resp.status_code == 201
     assert resp.json()["username"] == "testuser"
 
@@ -31,9 +36,14 @@ def test_get_me(app_client, admin_token):
 
 
 def test_change_password(app_client, admin_token):
-    resp = app_client.post("/auth/password", json={
-        "current_password": "admin1234", "new_password": "newadmin1234",
-    }, headers={"Authorization": f"Bearer {admin_token}"})
+    resp = app_client.post(
+        "/auth/password",
+        json={
+            "current_password": "admin1234",
+            "new_password": "newadmin1234",
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
     assert resp.status_code == 200
 
     resp = app_client.post("/auth/login", json={"username": "admin", "password": "newadmin1234"})
@@ -53,18 +63,26 @@ def test_unauthorized_without_token(app_client):
 def test_sql_crud(app_client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
 
-    resp = app_client.post("/sql/tables", json={
-        "name": "products",
-        "columns": [
-            {"name": "id", "col_type": "INTEGER", "primary_key": True},
-            {"name": "name", "col_type": "TEXT"},
-        ],
-    }, headers=h)
+    resp = app_client.post(
+        "/sql/tables",
+        json={
+            "name": "products",
+            "columns": [
+                {"name": "id", "col_type": "INTEGER", "primary_key": True},
+                {"name": "name", "col_type": "TEXT"},
+            ],
+        },
+        headers=h,
+    )
     assert resp.status_code == 200
 
-    resp = app_client.post("/sql/tables/products/insert", json={
-        "data": {"id": 1, "name": "Widget"},
-    }, headers=h)
+    resp = app_client.post(
+        "/sql/tables/products/insert",
+        json={
+            "data": {"id": 1, "name": "Widget"},
+        },
+        headers=h,
+    )
     assert resp.status_code == 200
 
     resp = app_client.get("/sql/tables/products", headers=h)
@@ -163,9 +181,15 @@ def test_graph_crud(app_client, admin_token):
     )
     bob_id = resp.json()["id"]
 
-    resp = app_client.post("/graph/edges", json={
-        "source_id": node_id, "target_id": bob_id, "relationship": "KNOWS",
-    }, headers=h)
+    resp = app_client.post(
+        "/graph/edges",
+        json={
+            "source_id": node_id,
+            "target_id": bob_id,
+            "relationship": "KNOWS",
+        },
+        headers=h,
+    )
     assert resp.status_code == 201
 
     resp = app_client.get("/graph/stats", headers=h)
@@ -174,14 +198,24 @@ def test_graph_crud(app_client, admin_token):
 
 
 def test_rbac_read_only_cannot_write(app_client, admin_token):
-    app_client.post("/auth/register", json={
-        "username": "reader", "password": "readerpass123", "role": "read_only",
-    })
+    app_client.post(
+        "/auth/register",
+        json={
+            "username": "reader",
+            "password": "readerpass123",
+            "role": "read_only",
+        },
+    )
     resp = app_client.post("/auth/login", json={"username": "reader", "password": "readerpass123"})
     reader_token = resp.json()["access_token"]
     rh = {"Authorization": f"Bearer {reader_token}"}
 
-    resp = app_client.post("/sql/tables", json={
-        "name": "forbidden", "columns": [{"name": "id", "col_type": "INTEGER"}],
-    }, headers=rh)
+    resp = app_client.post(
+        "/sql/tables",
+        json={
+            "name": "forbidden",
+            "columns": [{"name": "id", "col_type": "INTEGER"}],
+        },
+        headers=rh,
+    )
     assert resp.status_code == 403

@@ -42,18 +42,24 @@ def main():
 
     # --- 2. Document Store (NoSQL) ---
     print("\n--- Document Store ---")
-    db.docs.insert("projects", {
-        "name": "eDB",
-        "status": "active",
-        "team": ["Alice", "Charlie"],
-        "budget": 500000,
-    })
-    db.docs.insert("projects", {
-        "name": "Marketing Campaign",
-        "status": "planning",
-        "team": ["Bob"],
-        "budget": 100000,
-    })
+    db.docs.insert(
+        "projects",
+        {
+            "name": "eDB",
+            "status": "active",
+            "team": ["Alice", "Charlie"],
+            "budget": 500000,
+        },
+    )
+    db.docs.insert(
+        "projects",
+        {
+            "name": "Marketing Campaign",
+            "status": "planning",
+            "team": ["Bob"],
+            "budget": 100000,
+        },
+    )
 
     active = db.docs.find("projects", filter_dict={"status": "active"})
     print(f"Active projects: {[d.data['name'] for d in active]}")

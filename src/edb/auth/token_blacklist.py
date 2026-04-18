@@ -32,7 +32,9 @@ class TokenBlacklist:
         """)
         self._engine.commit()
 
-    def revoke(self, token_jti: str, user_id: str | None = None, expires_at: str | None = None) -> None:
+    def revoke(
+        self, token_jti: str, user_id: str | None = None, expires_at: str | None = None
+    ) -> None:
         """Add a token to the blacklist."""
         now = datetime.now(UTC).isoformat()
         self._engine.execute(
@@ -60,7 +62,7 @@ class TokenBlacklist:
             (f"user_revoke_{user_id}_{now}", user_id, now),
         )
         self._engine.commit()
-        return cursor.rowcount
+        return int(cursor.rowcount)
 
     def cleanup_expired(self) -> int:
         """Remove expired entries from the blacklist."""
@@ -70,4 +72,4 @@ class TokenBlacklist:
             (now,),
         )
         self._engine.commit()
-        return cursor.rowcount
+        return int(cursor.rowcount)

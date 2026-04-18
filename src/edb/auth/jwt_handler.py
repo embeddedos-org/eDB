@@ -74,8 +74,7 @@ class JWTHandler:
         """Decode a token without verifying expiration (for refresh flow)."""
         try:
             payload = jwt.decode(
-                token, self._secret, algorithms=[self._algorithm],
-                options={"verify_exp": False}
+                token, self._secret, algorithms=[self._algorithm], options={"verify_exp": False}
             )
             return payload
         except jwt.InvalidTokenError:
@@ -92,7 +91,7 @@ class JWTHandler:
             "access_token": self.create_access_token(user_id, username, role),
             "refresh_token": self.create_refresh_token(user_id),
             "token_type": "bearer",
-            "expires_in": self._access_expire * 60,
+            "expires_in": str(self._access_expire * 60),
         }
 
     @property

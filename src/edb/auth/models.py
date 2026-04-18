@@ -29,8 +29,11 @@ class Permission(StrEnum):
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.ADMIN: set(Permission),
     Role.READ_WRITE: {
-        Permission.DB_READ, Permission.DB_WRITE, Permission.DB_DELETE,
-        Permission.DB_CREATE_TABLE, Permission.EBOT_QUERY,
+        Permission.DB_READ,
+        Permission.DB_WRITE,
+        Permission.DB_DELETE,
+        Permission.DB_CREATE_TABLE,
+        Permission.EBOT_QUERY,
     },
     Role.READ_ONLY: {Permission.DB_READ, Permission.EBOT_QUERY},
 }

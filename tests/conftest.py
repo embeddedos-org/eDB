@@ -5,7 +5,6 @@ import tempfile
 from collections.abc import Generator
 
 import pytest
-
 from edb.core.database import Database
 from edb.core.engine import StorageEngine
 

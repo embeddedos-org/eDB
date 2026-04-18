@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 class QueryType(StrEnum):
     """Type of query to execute."""
+
     SQL = "sql"
     DOCUMENT = "document"
     KV = "kv"
@@ -17,6 +18,7 @@ class QueryType(StrEnum):
 
 class SQLQuery(BaseModel):
     """A SQL-style query."""
+
     type: QueryType = QueryType.SQL
     action: str  # select, insert, update, delete, raw
     table: str
@@ -32,6 +34,7 @@ class SQLQuery(BaseModel):
 
 class DocumentQuery(BaseModel):
     """A document store query."""
+
     type: QueryType = QueryType.DOCUMENT
     action: str  # find, insert, update, delete, count
     collection: str
@@ -45,6 +48,7 @@ class DocumentQuery(BaseModel):
 
 class KVQuery(BaseModel):
     """A key-value store query."""
+
     type: QueryType = QueryType.KV
     action: str  # get, set, delete, list, exists
     key: str | None = None
@@ -55,6 +59,7 @@ class KVQuery(BaseModel):
 
 class UnifiedQuery(BaseModel):
     """A unified query that wraps all query types."""
+
     type: QueryType
     sql: SQLQuery | None = None
     document: DocumentQuery | None = None
@@ -63,6 +68,7 @@ class UnifiedQuery(BaseModel):
 
 class UnifiedQueryResult(BaseModel):
     """Unified result from any query type."""
+
     success: bool = True
     query_type: QueryType
     data: Any = None

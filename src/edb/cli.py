@@ -54,18 +54,22 @@ def main() -> None:
 
 def _cmd_serve(args: argparse.Namespace) -> None:
     import os
+
     os.environ.setdefault("EDB_DB_PATH", args.db)
     os.environ.setdefault("EDB_API_HOST", args.host)
     os.environ.setdefault("EDB_API_PORT", str(args.port))
 
     import uvicorn
+
     print(f"🚀 Starting eDB API server on {args.host}:{args.port}")
     print(f"📁 Database: {args.db}")
     print(f"📖 API docs: http://{args.host}:{args.port}/docs")
     uvicorn.run(
         "edb.api.app:create_app",
-        host=args.host, port=args.port,
-        reload=args.reload, factory=True,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        factory=True,
     )
 
 
@@ -137,6 +141,7 @@ def _cmd_shell(args: argparse.Namespace) -> None:
 
 def _cmd_backup(args: argparse.Namespace) -> None:
     from edb.core.database import Database
+
     db = Database(args.db)
     db.engine.backup(args.dest)
     db.close()
@@ -145,12 +150,14 @@ def _cmd_backup(args: argparse.Namespace) -> None:
 
 def _cmd_restore(args: argparse.Namespace) -> None:
     import shutil
+
     shutil.copy2(args.source, args.db)
     print(f"✅ Database restored from {args.source} to {args.db}")
 
 
 def _cmd_version() -> None:
     from edb import __version__
+
     print(f"eDB v{__version__}")
 
 

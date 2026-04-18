@@ -27,9 +27,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
 
-        self._requests[client_ip] = [
-            t for t in self._requests[client_ip] if now - t < self._window
-        ]
+        self._requests[client_ip] = [t for t in self._requests[client_ip] if now - t < self._window]
 
         if len(self._requests[client_ip]) >= self._max_requests:
             logger.warning("Rate limit exceeded for %s", client_ip)
@@ -56,6 +54,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         duration = time.time() - start
         logger.info(
             "%s %s %s %.3fs",
-            request.method, request.url.path, response.status_code, duration,
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration,
         )
         return response

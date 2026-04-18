@@ -2,10 +2,10 @@
 
 Provides field-level encryption for sensitive data using AES-256-GCM.
 """
+
 from __future__ import annotations
 
 import base64
-import hashlib
 import os
 
 from cryptography.hazmat.primitives import hashes
@@ -20,32 +20,49 @@ class EncryptionManager:
     KEY_SIZE = 32  # 256 bits
     SALT_SIZE = 16
 
+    _key: bytes | None = None
+    _aes: AESGCM | None = None
+    _salt: bytes | None = None
+    _password: str | None = None
+
     def __init__(self, encryption_key: str | bytes | None = None) -> None:
+        self._key = None
+        self._aes = None
+        self._salt = None
+        self._password = None
+
+        key: bytes
         if encryption_key is None:
-            self._key = AESGCM.generate_key(bit_length=256)
+            key = AESGCM.generate_key(bit_length=256)
         elif isinstance(encryption_key, str):
             self._password = encryption_key
-            self._key = self._derive_key(encryption_key)
+            key = self._derive_key(encryption_key)
         else:
-            self._key = encryption_key
-        self._aes = AESGCM(self._key)
+            key = encryption_key
+
+        self._key = key
+        self._aes = AESGCM(key)
 
     @property
     def key(self) -> bytes:
         """Return the raw encryption key."""
+        if self._key is None:
+            raise RuntimeError("EncryptionManager not initialized")
         return self._key
 
     def encrypt(self, plaintext: str) -> str:
         """Encrypt a string and return base64-encoded ciphertext."""
+        if self._aes is None:
+            raise RuntimeError("EncryptionManager not initialized")
         nonce = os.urandom(self.NONCE_SIZE)
         ciphertext = self._aes.encrypt(nonce, plaintext.encode("utf-8"), None)
-        combined = self._salt + nonce + ciphertext if hasattr(self, "_salt") else nonce + ciphertext
+        combined = self._salt + nonce + ciphertext if self._salt is not None else nonce + ciphertext
         return base64.b64encode(combined).decode("utf-8")
 
     def decrypt(self, encrypted_data: str) -> str:
         """Decrypt base64-encoded ciphertext and return plaintext."""
         combined = base64.b64decode(encrypted_data)
-        if hasattr(self, "_password"):
+        if self._password is not None:
             salt = combined[: self.SALT_SIZE]
             nonce = combined[self.SALT_SIZE : self.SALT_SIZE + self.NONCE_SIZE]
             ciphertext = combined[self.SALT_SIZE + self.NONCE_SIZE :]
@@ -53,6 +70,8 @@ class EncryptionManager:
             aes = AESGCM(key)
             plaintext = aes.decrypt(nonce, ciphertext, None)
         else:
+            if self._aes is None:
+                raise RuntimeError("EncryptionManager not initialized")
             nonce = combined[: self.NONCE_SIZE]
             ciphertext = combined[self.NONCE_SIZE :]
             plaintext = self._aes.decrypt(nonce, ciphertext, None)
@@ -81,8 +100,8 @@ class EncryptionManager:
         return result
 
     def _derive_key(self, password: str) -> bytes:
-        """Derive an AES-256 key from a password using deterministic salt."""
-        salt = hashlib.sha256(password.encode("utf-8")).digest()[: self.SALT_SIZE]
+        """Derive an AES-256 key from a password using random salt."""
+        salt = os.urandom(self.SALT_SIZE)
         self._salt = salt
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
