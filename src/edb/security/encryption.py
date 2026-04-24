@@ -5,7 +5,6 @@ Provides field-level encryption for sensitive data using AES-256-GCM.
 from __future__ import annotations
 
 import base64
-import hashlib
 import os
 
 from cryptography.hazmat.primitives import hashes
@@ -81,8 +80,8 @@ class EncryptionManager:
         return result
 
     def _derive_key(self, password: str) -> bytes:
-        """Derive an AES-256 key from a password using deterministic salt."""
-        salt = hashlib.sha256(password.encode("utf-8")).digest()[: self.SALT_SIZE]
+        """Derive an AES-256 key from a password using a random salt."""
+        salt = os.urandom(self.SALT_SIZE)
         self._salt = salt
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),

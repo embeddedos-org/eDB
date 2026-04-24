@@ -5,8 +5,27 @@ Uses Pydantic Settings to load configuration from environment variables and .env
 
 from __future__ import annotations
 
-from pydantic import Field
+import logging
+import os
+import secrets
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger("edb.config")
+
+
+def _generate_random_secret(name: str) -> str:
+    """Generate a cryptographically secure random secret and log a CRITICAL warning."""
+    secret = secrets.token_urlsafe(48)
+    logger.critical(
+        "⚠️  No %s configured! A random secret was generated for this session. "
+        "Set the %s environment variable for production use. "
+        "Tokens/data from previous sessions will be INVALID.",
+        name,
+        name,
+    )
+    return secret
 
 
 class EDBConfig(BaseSettings):
@@ -18,8 +37,8 @@ class EDBConfig(BaseSettings):
     api_reload: bool = Field(default=False, description="Enable auto-reload for development")
 
     jwt_secret: str = Field(
-        default="edb-secret-change-me-in-production",
-        description="Secret key for JWT token signing",
+        default="",
+        description="Secret key for JWT token signing (REQUIRED for production)",
     )
     jwt_access_expire_minutes: int = Field(
         default=60, description="Access token expiration in minutes"
@@ -27,13 +46,18 @@ class EDBConfig(BaseSettings):
     jwt_refresh_expire_days: int = Field(default=7, description="Refresh token expiration in days")
 
     encryption_key: str = Field(
-        default="edb-encryption-key-change-me",
-        description="Encryption key for data at rest",
+        default="",
+        description="Encryption key for data at rest (REQUIRED for production)",
     )
 
     log_level: str = Field(default="INFO", description="Logging level")
     audit_enabled: bool = Field(default=True, description="Enable audit logging")
-    create_admin: bool = Field(default=True, description="Auto-create default admin user")
+    create_admin: bool = Field(default=False, description="Auto-create admin user on first run")
+
+    cors_origins: str = Field(
+        default="http://localhost:3000",
+        description="Comma-separated list of allowed CORS origins",
+    )
 
     rate_limit_enabled: bool = Field(default=True, description="Enable API rate limiting")
     rate_limit_requests: int = Field(default=100, description="Max requests per window")
@@ -45,6 +69,14 @@ class EDBConfig(BaseSettings):
     )
     ebot_openai_api_key: str = Field(default="", description="OpenAI API key for ebot LLM mode")
     ebot_openai_model: str = Field(default="gpt-3.5-turbo", description="OpenAI model for ebot")
+
+    @model_validator(mode="after")
+    def _ensure_secrets(self) -> "EDBConfig":
+        if not self.jwt_secret:
+            self.jwt_secret = _generate_random_secret("EDB_JWT_SECRET")
+        if not self.encryption_key:
+            self.encryption_key = _generate_random_secret("EDB_ENCRYPTION_KEY")
+        return self
 
     model_config = {
         "env_prefix": "EDB_",

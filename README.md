@@ -34,8 +34,11 @@ git clone https://github.com/embeddedos-org/eDB.git
 cd eDB
 pip install -e ".[dev]"
 
-# Initialize database with default admin
+# Initialize database
 edb init
+
+# Create admin user (interactive password prompt)
+edb admin create --username admin
 
 # Start the server
 edb serve --port 8000
@@ -135,7 +138,38 @@ EDB_API_HOST=0.0.0.0
 EDB_API_PORT=8000
 EDB_JWT_SECRET=your-strong-secret-here
 EDB_ENCRYPTION_KEY=your-encryption-key
+EDB_CORS_ORIGINS=http://localhost:3000,https://yourdomain.com
 ```
+
+## Security
+
+### Required Environment Variables for Production
+
+| Variable | Description |
+|----------|-------------|
+| `EDB_JWT_SECRET` | **Required.** Secret key for JWT signing. If not set, a random key is generated per session (tokens won't persist across restarts). |
+| `EDB_ENCRYPTION_KEY` | **Required.** Key for AES-256-GCM encryption at rest. If not set, a random key is generated (encrypted data won't be recoverable after restart). |
+| `EDB_CORS_ORIGINS` | Comma-separated allowed origins. Defaults to `http://localhost:3000`. |
+
+### Admin User Setup
+
+Admin users are **not** auto-created. Use the CLI to create one:
+
+```bash
+edb admin create --username admin
+# You'll be prompted for a password interactively.
+# Password must be 12+ chars with uppercase, lowercase, digit, and special char.
+```
+
+### Security Best Practices
+
+- Always set `EDB_JWT_SECRET` and `EDB_ENCRYPTION_KEY` in production
+- Use strong, unique values (e.g., `openssl rand -base64 48`)
+- Never commit `.env` files to version control
+- Restrict CORS origins to your actual frontend domains
+- Review audit logs regularly via `/admin/audit` endpoint
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Development
 
@@ -179,10 +213,6 @@ ruff format src/ tests/
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## Security
-
-See [SECURITY.md](SECURITY.md) for vulnerability reporting and security best practices.
 
 ## License
 

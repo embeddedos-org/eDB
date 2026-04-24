@@ -14,6 +14,8 @@ from edb.api.middleware import RateLimitMiddleware, RequestLoggingMiddleware
 from edb.api.routes import admin, auth, documents, ebot, graph, kv, sql
 from edb.config import EDBConfig
 
+logger = logging.getLogger("edb.api")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -23,8 +25,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logging.basicConfig(level=getattr(logging, config.log_level.upper(), logging.INFO))
 
-    if config.create_admin:
-        state.user_manager.ensure_admin_exists()
     yield
     state.database.close()
 
@@ -40,12 +40,13 @@ def create_app(config: EDBConfig | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    origins = [o.strip() for o in config.cors_origins.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
     if config.rate_limit_enabled:

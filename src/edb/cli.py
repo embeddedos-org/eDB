@@ -1,11 +1,12 @@
 """eDB CLI entry point.
 
-Provides commands: serve, init, shell, backup, restore, version
+Provides commands: serve, init, shell, backup, restore, admin, version
 """
 
 from __future__ import annotations
 
 import argparse
+import getpass
 
 
 def main() -> None:
@@ -32,6 +33,13 @@ def main() -> None:
     restore_p.add_argument("--source", required=True, help="Backup file to restore from")
     restore_p.add_argument("--db", default="edb_data.db", help="Target database path")
 
+    admin_p = subparsers.add_parser("admin", help="Admin user management")
+    admin_sub = admin_p.add_subparsers(dest="admin_command", help="Admin commands")
+    admin_create_p = admin_sub.add_parser("create", help="Create an admin user")
+    admin_create_p.add_argument("--username", required=True, help="Admin username")
+    admin_create_p.add_argument("--password", default=None, help="Admin password (prompted if omitted)")
+    admin_create_p.add_argument("--db", default="edb_data.db")
+
     subparsers.add_parser("version", help="Show eDB version")
 
     args = parser.parse_args()
@@ -46,6 +54,11 @@ def main() -> None:
         _cmd_backup(args)
     elif args.command == "restore":
         _cmd_restore(args)
+    elif args.command == "admin":
+        if args.admin_command == "create":
+            _cmd_admin_create(args)
+        else:
+            admin_p.print_help()
     elif args.command == "version":
         _cmd_version()
     else:
@@ -70,18 +83,44 @@ def _cmd_serve(args: argparse.Namespace) -> None:
 
 
 def _cmd_init(args: argparse.Namespace) -> None:
-    from edb.auth.users import UserManager
     from edb.core.database import Database
     from edb.security.audit import AuditLogger
 
     print(f"📦 Initializing eDB database at: {args.db}")
     db = Database(args.db)
-    UserManager(db.engine).ensure_admin_exists()
     AuditLogger(db.engine)
     db.close()
     print("✅ Database initialized successfully")
-    print("   Default admin: admin / admin1234")
-    print("   ⚠️  Change the admin password before production use!")
+    print("   Run 'edb admin create --username <name>' to create an admin user.")
+
+
+def _cmd_admin_create(args: argparse.Namespace) -> None:
+    from edb.auth.users import UserManager, validate_password_strength
+    from edb.core.database import Database
+
+    password = args.password
+    if password is None:
+        password = getpass.getpass("Enter admin password: ")
+        password_confirm = getpass.getpass("Confirm admin password: ")
+        if password != password_confirm:
+            print("❌ Passwords do not match.")
+            return
+
+    try:
+        validate_password_strength(password)
+    except ValueError as e:
+        print(f"❌ {e}")
+        return
+
+    db = Database(args.db)
+    try:
+        um = UserManager(db.engine)
+        um.ensure_admin_exists(username=args.username, password=password)
+        print(f"✅ Admin user '{args.username}' created successfully.")
+    except ValueError as e:
+        print(f"❌ {e}")
+    finally:
+        db.close()
 
 
 def _cmd_shell(args: argparse.Namespace) -> None:

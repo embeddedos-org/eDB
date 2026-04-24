@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -15,10 +16,28 @@ from edb.core.engine import StorageEngine
 USERS_TABLE = "_edb_users"
 logger = logging.getLogger("edb.auth.users")
 
+MIN_PASSWORD_LENGTH = 12
+PASSWORD_POLICY = (
+    "Password must be at least 12 characters and contain uppercase, "
+    "lowercase, digit, and special character."
+)
 
 
-
-USERS_TABLE = "_edb_users"
+def validate_password_strength(password: str) -> None:
+    """Enforce password complexity requirements."""
+    errors: list[str] = []
+    if len(password) < MIN_PASSWORD_LENGTH:
+        errors.append(f"at least {MIN_PASSWORD_LENGTH} characters")
+    if not re.search(r"[A-Z]", password):
+        errors.append("an uppercase letter")
+    if not re.search(r"[a-z]", password):
+        errors.append("a lowercase letter")
+    if not re.search(r"\d", password):
+        errors.append("a digit")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>\-_=+\[\]\\;'/`~]", password):
+        errors.append("a special character")
+    if errors:
+        raise ValueError(f"Password too weak — must contain: {', '.join(errors)}")
 
 
 class UserManager:
@@ -42,10 +61,13 @@ class UserManager:
         """)
         self._engine.commit()
 
-    def create_user(self, user_data: UserCreate) -> UserResponse:
+    def create_user(self, user_data: UserCreate, skip_password_check: bool = False) -> UserResponse:
         """Create a new user with hashed password."""
         if self.get_by_username(user_data.username):
             raise ValueError(f"Username '{user_data.username}' already exists")
+
+        if not skip_password_check:
+            validate_password_strength(user_data.password)
 
         user_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
@@ -124,17 +146,20 @@ class UserManager:
         self._engine.commit()
         return cursor.rowcount > 0
 
-    def ensure_admin_exists(self) -> None:
-        """Create a default admin user if no admins exist."""
+    def ensure_admin_exists(self, username: str, password: str) -> None:
+        """Create an admin user with the provided credentials if no admins exist."""
+        validate_password_strength(password)
         row = self._engine.fetchone(
             f'SELECT id FROM "{USERS_TABLE}" WHERE role = ?', (Role.ADMIN.value,)
         )
         if row is None:
-            self.create_user(UserCreate(
-                username="admin",
-                password="admin1234",
-                role=Role.ADMIN,
-            ))
+            self.create_user(
+                UserCreate(username=username, password=password, role=Role.ADMIN),
+                skip_password_check=True,
+            )
+            logger.info("Admin user '%s' created.", username)
+        else:
+            logger.info("Admin user already exists, skipping creation.")
 
     def change_password(self, user_id: str, current_password: str, new_password: str) -> bool:
         """Change a user password after verifying the current one."""
@@ -143,6 +168,7 @@ class UserManager:
             return False
         if not self._verify_password(current_password, user.password_hash):
             return False
+        validate_password_strength(new_password)
         new_hash = self._hash_password(new_password)
         now = datetime.now(UTC).isoformat()
         cursor = self._engine.execute(
