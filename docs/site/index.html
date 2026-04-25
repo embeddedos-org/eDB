@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>eDB — Multi-Model Database | EmbeddedOS</title>
+  <meta name="description" content="Unified multi-model database combining SQL + Document/NoSQL + Key-Value in one engine. SQLite-based, REST API, JWT auth, RBAC, AES-256 encryption, AI queries.">
+  <meta name="keywords" content="database, sql, nosql, key-value, rest api, sqlite, embedded database, multi-model">
+  <meta name="author" content="EmbeddedOS">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://embeddedos-org.github.io/eDB/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="eDB — Multi-Model Database | EmbeddedOS">
+  <meta property="og:description" content="Unified multi-model database combining SQL + Document/NoSQL + Key-Value in one engine. SQLite-based, REST API, JWT auth, RBAC, AES-256 encryption, AI queries.">
+  <meta property="og:url" content="https://embeddedos-org.github.io/eDB/">
+  <meta property="og:site_name" content="EmbeddedOS">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="eDB — Multi-Model Database | EmbeddedOS">
+  <meta name="twitter:description" content="Unified multi-model database combining SQL + Document/NoSQL + Key-Value in one engine. SQLite-based, REST API, JWT auth, RBAC, AES-256 encryption, AI queries.">
+  <link rel="stylesheet" href="style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "eDB",
+    "description": "Unified multi-model database combining SQL + Document/NoSQL + Key-Value in one engine. SQLite-based, REST API, JWT auth, RBAC, AES-256 encryption, AI queries.",
+    "url": "https://embeddedos-org.github.io/eDB/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "EmbeddedOS",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Organization", "name": "EmbeddedOS", "url": "https://embeddedos-org.github.io/" }
+  }
+  </script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="https://embeddedos-org.github.io/" class="logo">
+        <div class="logo-icon">eOS</div>
+        EmbeddedOS
+      </a>
+      <div class="nav-links">
+        <a href="https://embeddedos-org.github.io/">Home</a>
+        <a href="#features" class="active">Docs</a>
+        <a href="https://github.com/embeddedos-org/eDB" target="_blank">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-badges">
+        <span class="badge badge-green">Multi-Model</span>
+        <span class="badge badge-blue">SQL + NoSQL</span>
+        <span class="badge badge-cyan">REST API</span>
+      </div>
+      <h1 style="background: linear-gradient(135deg, #3fb950, #6fdd8b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">eDB</h1>
+      <p class="subtitle">Unified multi-model database combining SQL + Document/NoSQL + Key-Value in one engine. SQLite-based, REST API, JWT auth, RBAC, AES-256 encryption, AI queries.</p>
+      <div class="hero-buttons">
+        <a href="https://github.com/embeddedos-org/eDB" class="btn btn-primary" target="_blank">Star on GitHub</a>
+        <a href="#quickstart" class="btn btn-outline">Quick Start</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="features">
+    <h2 class="section-title">Features</h2>
+    <p class="section-subtitle">One database engine — SQL, documents, and key-value — with enterprise security</p>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3>SQL + Document + Key-Value</h3>
+        <p>Query relational tables with SQL, store flexible JSON documents, and use fast key-value lookups — all in one engine.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Zero-Dependency SQLite Foundation</h3>
+        <p>Built on SQLite for maximum portability — no external database server required, runs anywhere from MCUs to servers.</p>
+      </div>
+      <div class="feature-card">
+        <h3>REST API via FastAPI</h3>
+        <p>Full-featured REST API with OpenAPI docs, automatic validation, and async request handling powered by FastAPI.</p>
+      </div>
+      <div class="feature-card">
+        <h3>JWT Auth + RBAC</h3>
+        <p>JSON Web Token authentication with role-based access control for fine-grained permission management.</p>
+      </div>
+      <div class="feature-card">
+        <h3>AES-256 Encryption at Rest</h3>
+        <p>Transparent AES-256 encryption for data at rest with secure key management and automatic rotation.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Tamper-Resistant Audit Logging</h3>
+        <p>Immutable, hash-chained audit logs for regulatory compliance and forensic analysis of all data operations.</p>
+      </div>
+      <div class="feature-card">
+        <h3>Full-Text Search + Graph Queries</h3>
+        <p>Built-in FTS5 full-text search and recursive graph traversal queries for relationship-heavy data models.</p>
+      </div>
+      <div class="feature-card">
+        <h3>eBot AI Natural Language Interface</h3>
+        <p>Ask questions in plain English and eBot translates them to optimized SQL queries with result explanations.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" id="quickstart">
+    <h2 class="section-title">Quick Start</h2>
+    <p class="section-subtitle">Get up and running in seconds</p>
+    <pre><code>pip install -e ".[dev]" && edb init && edb serve --port 8000</code></pre>
+  </section>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-grid">
+        <a href="https://embeddedos-org.github.io/">EmbeddedOS</a>
+        <a href="https://embeddedos-org.github.io/eNI/">eNI</a>
+        <a href="https://embeddedos-org.github.io/EoSim/">EoSim</a>
+        <a href="https://embeddedos-org.github.io/EoStudio/">EoStudio</a>
+        <a href="https://embeddedos-org.github.io/eApps/">eApps</a>
+        <a href="https://embeddedos-org.github.io/eDB/">eDB</a>
+        <a href="https://embeddedos-org.github.io/eAI/">eAI</a>
+        <a href="https://embeddedos-org.github.io/eIPC/">eIPC</a>
+        <a href="https://embeddedos-org.github.io/eOffice/">eOffice</a>
+        <a href="https://embeddedos-org.github.io/eBrowser/">eBrowser</a>
+        <a href="https://embeddedos-org.github.io/eRide/">eRide</a>
+        <a href="https://embeddedos-org.github.io/eSocial/">eSocial</a>
+        <a href="https://embeddedos-org.github.io/eTrack/">eTrack</a>
+        <a href="https://embeddedos-org.github.io/eTravel/">eTravel</a>
+        <a href="https://embeddedos-org.github.io/eWallet/">eWallet</a>
+      </div>
+      <div class="footer-bottom">&copy; 2026 EmbeddedOS Organization. Open-source under MIT License.</div>
+    </div>
+  </footer>
+</body>
+</html>
