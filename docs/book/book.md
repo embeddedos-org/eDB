@@ -193,6 +193,9 @@ Open `browser/edb.html` directly in any browser for a zero-install experience wi
 
 ## 3.1 Architectural Overview
 
+
+![Figure: eDB Multi-Model Storage Architecture — relational, document, graph, and key-value engines](images/storage-architecture.png)
+
 ```
 eDB/
 ├── src/
