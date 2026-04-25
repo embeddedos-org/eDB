@@ -66,6 +66,9 @@ The frontend is a React/TypeScript application with a SQL query editor, inline d
 
 eDB is a unified multi-model database that combines **SQL**, **Document/NoSQL**, and **Key-Value** storage in a single embedded engine. It includes a Python backend (FastAPI + SQLite), a React/TypeScript frontend with SQL editor and AI-powered query assistance, and a standalone browser version.
 
+![Figure: eDB Replication & Sync Architecture — primary with WAL-based replica streaming](images/replication.png)
+
+
 ## 1.2 Key Features
 
 | Feature | Description |
@@ -427,6 +430,9 @@ db.sql.insert_many("products", [
 results = db.sql.execute("SELECT category, AVG(price) as avg_price "
                          "FROM products GROUP BY category "
                          "ORDER BY avg_price DESC")
+
+![Figure: eDB SQL Query Execution Pipeline — parse, optimize, plan, execute](images/query-pipeline.png)
+
 
 # Parameterized queries (SQL injection safe)
 results = db.sql.execute(
