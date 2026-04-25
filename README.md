@@ -217,3 +217,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+
+---
+Part of the [EmbeddedOS Organization](https://embeddedos-org.github.io).
