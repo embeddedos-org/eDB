@@ -24,7 +24,7 @@ eDB is a unified multi-model database that combines SQL, Document/NoSQL, and Key
 
 This reference book is intended for backend developers, embedded systems engineers, database administrators, and full-stack developers who need to understand, deploy, and manage eDB in their applications. Whether you are embedding eDB as a Python library in a microservice, running it as a standalone server with the React frontend, or using the browser-based standalone version for client-side storage, this book provides comprehensive technical coverage.
 
-eDB is built on SQLite for zero-dependency operation while providing a rich feature set: JWT authentication with role-based access control, AES-256-GCM field-level encryption at rest, tamper-resistant audit logging with hash chain verification, a natural language query interface (eBot), and a full REST API via FastAPI with auto-generated OpenAPI documentation.
+eDB is built on SQLite [@hipp2020] for zero-dependency operation while providing a rich feature set: JWT authentication with role-based access control, AES-256-GCM field-level encryption at rest, tamper-resistant audit logging with hash chain verification, a natural language query [@graefe1993] interface (eBot), and a full REST API via FastAPI with auto-generated OpenAPI documentation.
 
 The frontend is a React/TypeScript application with a SQL query editor, inline data editing, table management, and an AI assistant sidebar. A standalone browser version with localStorage persistence provides a zero-install experience.
 
@@ -293,7 +293,7 @@ eDB's core innovation is providing three data models — SQL, Document, and Key-
 | Schema | Fixed columns | Schema-free JSON | Key-value pairs |
 | Queries | Full SQL | Find by field match | Get/Set by key |
 | Indexing | Column indexes | JSON field indexes | Key-based |
-| Transactions | Full ACID | Per-operation | Per-operation |
+| Transactions | Full ACID [@gray1992] | Per-operation | Per-operation |
 | Use Case | Structured data | Semi-structured | Cache, sessions |
 
 ## 4.3 Unified Database API
@@ -1630,3 +1630,8 @@ npm install      # Reinstall dependencies
 *eDB — Unified Multi-Model Database Reference — Version 1.0 — April 2026*
 
 *Copyright (c) 2026 EmbeddedOS Organization. MIT License.*
+
+## References
+
+::: {#refs}
+:::
