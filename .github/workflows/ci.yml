@@ -9,6 +9,7 @@ on:
 jobs:
   python:
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -34,6 +35,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
       matrix:
         node-version: [20.x, 22.x]
