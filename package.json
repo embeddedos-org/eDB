@@ -1,7 +1,7 @@
 {
   "name": "edb",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.0.1",
   "type": "module",
   "description": "Lightweight embedded database manager with SQL editor, AI-powered query assistance, and multi-model storage",
   "scripts": {
