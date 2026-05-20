@@ -1,5 +1,14 @@
 # eDB: Unified Multi-Model Database Ecosystem
 
+<!-- begin: org-uniform badges (audit-2026-05) -->
+[![CI](https://github.com/embeddedos-org/eDB/actions/workflows/ci.yml/badge.svg)](https://github.com/embeddedos-org/eDB/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/embeddedos-org/eDB/actions/workflows/codeql.yml/badge.svg)](https://github.com/embeddedos-org/eDB/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/embeddedos-org/eDB/badge)](https://securityscorecards.dev/viewer/?uri=github.com/embeddedos-org/eDB)
+[![Release](https://img.shields.io/github/v/tag/embeddedos-org/eDB?label=release&sort=semver)](https://github.com/embeddedos-org/eDB/releases)
+[![License](https://img.shields.io/github/license/embeddedos-org/eDB)](LICENSE)
+<!-- end: org-uniform badges (audit-2026-05) -->
+
+
 [![CI](https://github.com/embeddedos-org/eDB/actions/workflows/ci.yml/badge.svg)](https://github.com/embeddedos-org/eDB/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -214,6 +223,19 @@ ruff format src/ tests/
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+<!-- begin: release-model (audit-2026-05) -->
+## Release model
+
+`master` is the line of development; every PR lands here. `release` is a
+rolling pointer to the latest released `vX.Y.Z` tag, updated automatically
+by [`.github/workflows/sync-release-branch.yml`](.github/workflows/sync-release-branch.yml).
+Tags are immutable.
+
+See [embeddedos-org/.github/STANDARDS.md](https://github.com/embeddedos-org/.github/blob/master/STANDARDS.md)
+for the org-wide tag scheme, release model, and the compliance frameworks
+every product targets.
+<!-- end: release-model (audit-2026-05) -->
 
 ## License
 
