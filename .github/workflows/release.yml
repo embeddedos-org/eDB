@@ -108,7 +108,7 @@ jobs:
             echo "has_npm=false" >> $GITHUB_OUTPUT
             echo "::notice::No package.json found, skipping npm publish"
           fi
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         if: steps.detect.outputs.has_npm == 'true'
         with:
           node-version: '20.x'
