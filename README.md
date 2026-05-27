@@ -23,7 +23,7 @@ We continuously benchmark eDB — Embedded Database against the entire EmbeddedO
 
 ---
 
-## 🎬 Product Marketing Video
+## 🎬 Product Marketing Video (App Store Proof of Production)
 
 Experience eDB — Embedded Database in action! Watch our high-fidelity product demonstration and marketing video:
 
