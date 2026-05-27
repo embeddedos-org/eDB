@@ -61,7 +61,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short --cov=edb --cov-report=term-missing"
+addopts = "-v --tb=short"
 asyncio_mode = "auto"
 
 [tool.ruff]
