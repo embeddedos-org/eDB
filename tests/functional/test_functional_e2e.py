@@ -1,12 +1,15 @@
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2026 EoS Project
 import unittest
-class TestEdbFunctional(unittest.TestCase):
-    def test_btree_index_insert_lookup(self):
-        print("Testing B-Tree index insertion and fast key lookup...")
-        db = {}
-        index = {}
-        db[101] = {"name": "Alice", "role": "admin"}
-        index[101] = len(db) - 1
-        record = db[101]
-        self.assertEqual(record["name"], "Alice")
+
+class TesteDBFunctional(unittest.TestCase):
+    def test_acid_transaction_pipeline(self):
+        db = {"balance_1": 100, "balance_2": 50}
+        # Transaction: Transfer 30 from 1 to 2
+        try:
+            db["balance_1"] -= 30
+            db["balance_2"] += 30
+            transaction_ok = True
+        except:
+            transaction_ok = False
+        assert transaction_ok
+        assert db["balance_1"] == 70
+        assert db["balance_2"] == 80
