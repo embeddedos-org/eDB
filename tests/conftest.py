@@ -47,7 +47,7 @@ def app_client():
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
 
-    config = EDBConfig(db_path=db_path, create_admin=True, jwt_secret="test-secret")
+    config = EDBConfig(db_path=db_path, create_admin=True, jwt_secret="test-secret-key-minimum-32-bytes-ok!")
     app = create_app(config)
 
     state = AppState(config)
