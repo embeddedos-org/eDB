@@ -9,12 +9,12 @@ def test_health(app_client):
 
 def test_register_and_login(app_client):
     resp = app_client.post("/auth/register", json={
-        "username": "testuser", "password": "testpass123", "role": "read_write",
+        "username": "testuser", "password": "TestUser@12345!", "role": "read_write",
     })
     assert resp.status_code == 201
     assert resp.json()["username"] == "testuser"
 
-    resp = app_client.post("/auth/login", json={"username": "testuser", "password": "testpass123"})
+    resp = app_client.post("/auth/login", json={"username": "testuser", "password": "TestUser@12345!"})
     assert resp.status_code == 200
     assert "access_token" in resp.json()
 
@@ -32,11 +32,11 @@ def test_get_me(app_client, admin_token):
 
 def test_change_password(app_client, admin_token):
     resp = app_client.post("/auth/password", json={
-        "current_password": "admin1234", "new_password": "newadmin1234",
+        "current_password": "Admin@12345678!", "new_password": "Admin@NewPass99!",
     }, headers={"Authorization": f"Bearer {admin_token}"})
     assert resp.status_code == 200
 
-    resp = app_client.post("/auth/login", json={"username": "admin", "password": "newadmin1234"})
+    resp = app_client.post("/auth/login", json={"username": "admin", "password": "Admin@NewPass99!"})
     assert resp.status_code == 200
 
 
@@ -175,9 +175,9 @@ def test_graph_crud(app_client, admin_token):
 
 def test_rbac_read_only_cannot_write(app_client, admin_token):
     app_client.post("/auth/register", json={
-        "username": "reader", "password": "readerpass123", "role": "read_only",
+        "username": "reader", "password": "Reader@12345!", "role": "read_only",
     })
-    resp = app_client.post("/auth/login", json={"username": "reader", "password": "readerpass123"})
+    resp = app_client.post("/auth/login", json={"username": "reader", "password": "Reader@12345!"})
     reader_token = resp.json()["access_token"]
     rh = {"Authorization": f"Bearer {reader_token}"}
 

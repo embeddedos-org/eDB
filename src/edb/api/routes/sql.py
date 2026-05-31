@@ -118,8 +118,9 @@ def get_table_data(
 ) -> dict[str, Any]:
     """Get data from a table."""
     try:
-        rows = state.database.sql.select(table_name, limit=limit, offset=offset)
-        cols = list(rows[0].keys()) if rows else []
+        result = state.database.sql.select(table_name, limit=limit, offset=offset)
+        rows = result.rows if hasattr(result, 'rows') else result
+        cols = result.columns if hasattr(result, 'columns') else (list(rows[0].keys()) if rows else [])
         return {"columns": cols, "rows": rows, "row_count": len(rows)}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -134,7 +135,7 @@ def select_from_table(
 ) -> dict[str, Any]:
     """Select rows from a table with filtering."""
     try:
-        rows = state.database.sql.select(
+        result = state.database.sql.select(
             table=table_name,
             columns=request.columns,
             where=request.where,
@@ -142,7 +143,8 @@ def select_from_table(
             limit=request.limit,
             offset=request.offset,
         )
-        cols = list(rows[0].keys()) if rows else []
+        rows = result.rows if hasattr(result, 'rows') else result
+        cols = result.columns if hasattr(result, 'columns') else (list(rows[0].keys()) if rows else [])
         return {"columns": cols, "rows": rows, "row_count": len(rows)}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -157,7 +159,8 @@ def insert_into_table(
 ) -> dict[str, Any]:
     """Insert a row into a table."""
     try:
-        last_row_id = state.database.sql.insert(table_name, request.data)
+        result = state.database.sql.insert(table_name, request.data)
+        last_row_id = result.last_row_id if hasattr(result, 'last_row_id') else result
         state.audit.log(
             event_type="query",
             action="sql_insert",
@@ -178,7 +181,8 @@ def update_table(
 ) -> dict[str, Any]:
     """Update rows in a table."""
     try:
-        affected = state.database.sql.update(table_name, request.data, request.where)
+        result = state.database.sql.update(table_name, request.data, request.where)
+        affected = result.affected_rows if hasattr(result, 'affected_rows') else result
         state.audit.log(
             event_type="query",
             action="sql_update",
@@ -199,7 +203,8 @@ def delete_from_table(
 ) -> dict[str, Any]:
     """Delete rows from a table."""
     try:
-        affected = state.database.sql.delete(table_name, request.where)
+        result = state.database.sql.delete(table_name, request.where)
+        affected = result.affected_rows if hasattr(result, 'affected_rows') else result
         state.audit.log(
             event_type="query",
             action="sql_delete",
