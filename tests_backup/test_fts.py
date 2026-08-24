@@ -16,15 +16,18 @@ def test_index_and_search(engine):
     fts.create_index("articles", ["title", "body"])
 
     fts.index_document(
-        "articles", "1",
+        "articles",
+        "1",
         {"title": "Python Programming", "body": "Learn Python basics"},
     )
     fts.index_document(
-        "articles", "2",
+        "articles",
+        "2",
         {"title": "Database Design", "body": "SQL and NoSQL patterns"},
     )
     fts.index_document(
-        "articles", "3",
+        "articles",
+        "3",
         {"title": "Python Advanced", "body": "Async and concurrency"},
     )
 

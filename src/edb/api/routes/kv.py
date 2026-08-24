@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -61,7 +61,7 @@ def set_value(
         user_id=user.get("sub"),
         details={"key": key},
     )
-    return entry.model_dump(mode="json")
+    return cast(dict[str, Any], entry.model_dump(mode="json"))
 
 
 @router.delete("/{key:path}")

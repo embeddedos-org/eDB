@@ -17,8 +17,6 @@ from edb.auth.models import (
 router = APIRouter()
 
 
-
-
 @router.post("/register", response_model=UserResponse, status_code=201)
 def register(
     user_data: UserCreate,
@@ -63,7 +61,12 @@ def login(
         user_id=user.id,
         username=user.username,
     )
-    return TokenPair(**tokens)
+    return TokenPair(
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
+        token_type=tokens["token_type"],
+        expires_in=int(tokens["expires_in"]),
+    )
 
 
 @router.post("/refresh", response_model=TokenPair)
@@ -89,7 +92,12 @@ def refresh_token(
         )
 
     tokens = state.jwt_handler.create_token_pair(user.id, user.username, user.role.value)
-    return TokenPair(**tokens)
+    return TokenPair(
+        access_token=tokens["access_token"],
+        refresh_token=tokens["refresh_token"],
+        token_type=tokens["token_type"],
+        expires_in=int(tokens["expires_in"]),
+    )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -115,7 +123,7 @@ def change_password(
     body: dict[str, str],
     user: Annotated[dict[str, Any], Depends(get_current_user)],
     state: Annotated[AppState, Depends(get_app_state)],
-):
+) -> dict[str, str]:
     """Change the current user's password."""
     result = state.user_manager.change_password(
         user["sub"], body["current_password"], body["new_password"]
@@ -131,6 +139,6 @@ def change_password(
 @router.post("/logout")
 def logout(
     user: Annotated[dict[str, Any], Depends(get_current_user)],
-):
+) -> dict[str, str]:
     """Log out the current user (client should discard tokens)."""
     return {"message": "Logged out successfully"}

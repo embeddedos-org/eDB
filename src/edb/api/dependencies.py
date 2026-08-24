@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any, cast
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -20,8 +21,6 @@ from edb.security.input_validation import InputValidator
 
 logger = logging.getLogger("edb.api")
 security_scheme = HTTPBearer(auto_error=False)
-
-
 
 
 class AppState:
@@ -44,7 +43,7 @@ class AppState:
 
 def get_app_state(request: Request) -> AppState:
     """Get the shared AppState from the request."""
-    return request.app.state.edb
+    return cast(AppState, request.app.state.edb)
 
 
 def get_database(state: Annotated[AppState, Depends(get_app_state)]) -> Database:
@@ -92,7 +91,12 @@ async def get_current_user(
     return payload
 
 
-def require_permission(permission: Permission):
+def require_permission(
+    permission: Permission,
+) -> Callable[
+    [AppState, dict[str, Any]],
+    Coroutine[Any, Any, dict[str, Any]],
+]:
     """Create a dependency that checks for a specific permission."""
 
     async def check(
@@ -110,6 +114,6 @@ def require_permission(permission: Permission):
     return check
 
 
-def require_admin():
+def require_admin() -> Callable:
     """Dependency that requires admin role."""
     return require_permission(Permission.ADMIN_USERS)

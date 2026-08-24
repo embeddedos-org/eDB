@@ -21,12 +21,22 @@ class QueryParser:
     """Parses JSON/dict queries into typed query objects."""
 
     VALID_SQL_ACTIONS: ClassVar[set[str]] = {
-        "select", "insert", "update", "delete", "raw",
-        "create_table", "drop_table",
+        "select",
+        "insert",
+        "update",
+        "delete",
+        "raw",
+        "create_table",
+        "drop_table",
     }
     VALID_DOC_ACTIONS: ClassVar[set[str]] = {
-        "find", "find_by_id", "insert", "update", "delete",
-        "count", "list_collections",
+        "find",
+        "find_by_id",
+        "insert",
+        "update",
+        "delete",
+        "count",
+        "list_collections",
     }
     VALID_KV_ACTIONS: ClassVar[set[str]] = {"get", "set", "delete", "list", "exists", "count"}
 
@@ -61,17 +71,14 @@ class QueryParser:
         }
         if raw_type not in type_map:
             raise QueryParseError(
-                f"Invalid query type '{raw_type}'. "
-                f"Valid types: {', '.join(type_map.keys())}"
+                f"Invalid query type '{raw_type}'. Valid types: {', '.join(type_map.keys())}"
             )
         return type_map[raw_type]
 
     def _parse_sql(self, q: dict[str, Any]) -> UnifiedQuery:
         action = q.get("action", "").lower()
         if action not in self.VALID_SQL_ACTIONS:
-            raise QueryParseError(
-                f"Invalid SQL action '{action}'. Valid: {self.VALID_SQL_ACTIONS}"
-            )
+            raise QueryParseError(f"Invalid SQL action '{action}'. Valid: {self.VALID_SQL_ACTIONS}")
         if action != "raw" and not q.get("table"):
             raise QueryParseError("SQL queries require a 'table' field")
 
@@ -113,9 +120,7 @@ class QueryParser:
     def _parse_kv(self, q: dict[str, Any]) -> UnifiedQuery:
         action = q.get("action", "").lower()
         if action not in self.VALID_KV_ACTIONS:
-            raise QueryParseError(
-                f"Invalid KV action '{action}'. Valid: {self.VALID_KV_ACTIONS}"
-            )
+            raise QueryParseError(f"Invalid KV action '{action}'. Valid: {self.VALID_KV_ACTIONS}")
 
         kv_query = KVQuery(
             action=action,

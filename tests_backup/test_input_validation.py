@@ -62,18 +62,22 @@ def test_validate_query_input_clean():
 
 def test_validate_query_input_injection():
     v = InputValidator()
-    warnings = v.validate_query_input({
-        "type": "sql",
-        "where": {"name": "'; DROP TABLE users; --"},
-    })
+    warnings = v.validate_query_input(
+        {
+            "type": "sql",
+            "where": {"name": "'; DROP TABLE users; --"},
+        }
+    )
     assert len(warnings) > 0
 
 
 def test_validate_query_input_nested():
     v = InputValidator()
-    warnings = v.validate_query_input({
-        "data": {"items": ["$where", "normal"]},
-    })
+    warnings = v.validate_query_input(
+        {
+            "data": {"items": ["$where", "normal"]},
+        }
+    )
     assert len(warnings) > 0
 
 
