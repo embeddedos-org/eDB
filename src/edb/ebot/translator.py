@@ -22,9 +22,7 @@ class NLQueryTranslator:
         """Translate a natural language query to eDB query DSL."""
         text = text.strip()
         if not text:
-            return TranslationResult(
-                original_text=text, error="Empty query"
-            )
+            return TranslationResult(original_text=text, error="Empty query")
 
         if self._provider == "rule_based":
             return self._rule_based_translate(text, context)

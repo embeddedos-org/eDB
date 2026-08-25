@@ -62,8 +62,17 @@ class AuditLogger:
             (timestamp, event_type, user_id, username, action,
              details, ip_address, prev_hash, entry_hash)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (timestamp, event_type, user_id, username, action, details_json, ip_address,
-             prev_hash, entry_hash),
+            (
+                timestamp,
+                event_type,
+                user_id,
+                username,
+                action,
+                details_json,
+                ip_address,
+                prev_hash,
+                entry_hash,
+            ),
         )
         self._engine.commit()
         return cursor.lastrowid or 0
@@ -101,9 +110,7 @@ class AuditLogger:
 
         Returns (is_valid, message).
         """
-        rows = self._engine.fetchall(
-            f'SELECT * FROM "{AUDIT_TABLE}" ORDER BY id ASC'
-        )
+        rows = self._engine.fetchall(f'SELECT * FROM "{AUDIT_TABLE}" ORDER BY id ASC')
         if not rows:
             return True, "Audit log is empty"
 

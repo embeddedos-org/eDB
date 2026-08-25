@@ -44,6 +44,7 @@ def test_auto_generated_key():
 
 def test_key_from_bytes():
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
     key = AESGCM.generate_key(bit_length=256)
     mgr = EncryptionManager(key)
 

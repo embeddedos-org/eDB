@@ -30,7 +30,9 @@ class LLMTranslator:
     """Translates natural language queries using an OpenAI-compatible LLM."""
 
     def __init__(
-        self, api_key: str, model: str = "gpt-3.5-turbo",
+        self,
+        api_key: str,
+        model: str = "gpt-3.5-turbo",
         base_url: str | None = None,
     ) -> None:
         self._api_key = api_key
