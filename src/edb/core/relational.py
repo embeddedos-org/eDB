@@ -20,6 +20,8 @@ class QueryResult:
     rows: list[dict[str, Any]] = field(default_factory=list)
     affected_rows: int = 0
     columns: list[str] = field(default_factory=list)
+    #: Primary key assigned by the last INSERT, as reported by the driver.
+    last_insert_id: int = 0
 
     @property
     def row_count(self) -> int:
@@ -27,7 +29,14 @@ class QueryResult:
 
     @property
     def last_row_id(self) -> int:
-        return self.affected_rows
+        """Primary key of the row the last INSERT created.
+
+        This previously returned ``affected_rows``, which is a count, not an
+        id -- so a table whose rows were assigned ids 1, 2, 3 reported a
+        last_row_id of 1 every time, and ``POST /sql/insert`` returned that
+        to callers.
+        """
+        return self.last_insert_id
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -70,19 +79,27 @@ class RelationalStore:
             tuple(data.values()),
         )
         self._e.commit()
-        return QueryResult(rows=[], affected_rows=cur.rowcount or 1)
+        return QueryResult(
+            rows=[],
+            affected_rows=cur.rowcount or 1,
+            last_insert_id=cur.lastrowid or 0,
+        )
 
     def insert_many(self, table: str, rows: list[dict[str, Any]]) -> QueryResult:
         if not rows:
             return QueryResult()
         cols = ", ".join(rows[0].keys())
         placeholders = ", ".join(["?"] * len(rows[0]))
-        self._e.executemany(
+        cur = self._e.executemany(
             f"INSERT INTO {table} ({cols}) VALUES ({placeholders})",
             [tuple(r.values()) for r in rows],
         )
         self._e.commit()
-        return QueryResult(rows=[], affected_rows=len(rows))
+        return QueryResult(
+            rows=[],
+            affected_rows=len(rows),
+            last_insert_id=(getattr(cur, "lastrowid", 0) or 0),
+        )
 
     def select(self, table: str, columns: list[str] | None = None,
                where: dict[str, Any] | None = None, limit: int | None = None,
