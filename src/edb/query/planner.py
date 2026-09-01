@@ -46,7 +46,10 @@ class QueryPlanner:
         store = self._db.sql
 
         if q.action == "select":
-            rows = store.select(
+            # RelationalStore returns a QueryResult, not a bare row list.
+            # Subscripting it raised "'QueryResult' object is not subscriptable",
+            # which execute() swallowed into success=False for every SQL select.
+            result = store.select(
                 table=q.table,
                 columns=q.columns,
                 where=q.where,
@@ -54,7 +57,8 @@ class QueryPlanner:
                 limit=q.limit,
                 offset=q.offset,
             )
-            columns = list(rows[0].keys()) if rows else []
+            rows = result.rows
+            columns = result.columns or (list(rows[0].keys()) if rows else [])
             return UnifiedQueryResult(
                 query_type=QueryType.SQL,
                 data=rows,
@@ -69,11 +73,11 @@ class QueryPlanner:
                     query_type=QueryType.SQL,
                     error="Insert requires 'data'",
                 )
-            last_row_id = store.insert(q.table, q.data)
+            insert_result = store.insert(q.table, q.data)
             return UnifiedQueryResult(
                 query_type=QueryType.SQL,
-                data={"last_row_id": last_row_id},
-                row_count=1,
+                data={"last_row_id": insert_result.last_row_id},
+                row_count=insert_result.affected_rows,
             )
 
         elif q.action == "update":
@@ -83,10 +87,10 @@ class QueryPlanner:
                     query_type=QueryType.SQL,
                     error="Update requires 'data' and 'where'",
                 )
-            affected = store.update(q.table, q.data, q.where)
+            update_result = store.update(q.table, q.data, q.where)
             return UnifiedQueryResult(
                 query_type=QueryType.SQL,
-                row_count=affected,
+                row_count=update_result.affected_rows,
             )
 
         elif q.action == "delete":
@@ -96,10 +100,10 @@ class QueryPlanner:
                     query_type=QueryType.SQL,
                     error="Delete requires 'where'",
                 )
-            deleted = store.delete(q.table, q.where)
+            delete_result = store.delete(q.table, q.where)
             return UnifiedQueryResult(
                 query_type=QueryType.SQL,
-                row_count=deleted,
+                row_count=delete_result.affected_rows,
             )
 
         elif q.action == "raw":
