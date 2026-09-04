@@ -30,8 +30,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-benchmark mypy ruff
+          # This repo has no requirements.txt; its dependencies live in
+          # pyproject.toml. Installing the project and its `dev` extra is also
+          # what makes the version floors declared there actually apply.
+          pip install -e ".[dev]"
+          # Used by the benchmark step below; not part of the `dev` extra.
+          pip install pytest-benchmark
 
       - name: Lint (ruff)
         run: ruff check . --select=E,F,W --ignore=E501
