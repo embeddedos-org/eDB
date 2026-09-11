@@ -29,6 +29,7 @@ Fixes #123
 - [ ] `ruff check .` passes
 - [ ] `npm test` passes
 - [ ] `npm run build` passes
+- [ ] `npm run dev` starts successfully
 - [ ] Manual testing of affected components
 
 ## Checklist
