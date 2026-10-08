@@ -66,10 +66,6 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py311"
-# promo/ holds manim video scripts (a marketing asset, not the shipped
-# package); the star-import idiom is required by manim, so it is excluded
-# from the lint gate instead of carrying 100+ F403/F405 noise.
-exclude = ["promo"]
 line-length = 100
 src = ["src"]
 
@@ -79,9 +75,6 @@ ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
-# Same rationale as the ruff exclusion above: manim is not installed in CI
-# and promo scripts are not part of the package surface.
-exclude = "promo/"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

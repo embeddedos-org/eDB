@@ -1,5 +1,31 @@
 """eDB — production promo video with synced narration."""
-from manim import *
+from manim import (
+    BOLD,
+    DOWN,
+    GRAY_B,
+    LEFT,
+    RIGHT,
+    UP,
+    WHITE,
+    YELLOW,
+    Arrow,
+    Create,
+    Dot,
+    FadeIn,
+    FadeOut,
+    GrowArrow,
+    GrowFromEdge,
+    LaggedStart,
+    Line,
+    ManimColor,
+    Paragraph,
+    Rectangle,
+    RoundedRectangle,
+    Scene,
+    Text,
+    VGroup,
+    Write,
+)
 import json
 import os
 
@@ -17,7 +43,7 @@ DARK = "#1e293b"
 
 
 class ProductPromo(Scene):
-    def construct(self):
+    def construct(self) -> None:
         self.camera.background_color = BG
 
         # ═══ INTRO ═══
@@ -128,9 +154,9 @@ class ProductPromo(Scene):
         # Data flow dots
         flow_dots = VGroup()
         for arr in arrows:
-            for t in [0.3, 0.5, 0.7]:
+            for frac in [0.3, 0.5, 0.7]:
                 dot = Dot(radius=0.03, color=ACCENT).set_opacity(0.6)
-                dot.move_to(arr.point_from_proportion(t))
+                dot.move_to(arr.point_from_proportion(frac))
                 flow_dots.add(dot)
 
         self.play(FadeIn(arch_label), run_time=0.3)
