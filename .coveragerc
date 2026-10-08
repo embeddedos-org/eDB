@@ -11,7 +11,8 @@ omit =
 [report]
 show_missing = True
 precision = 2
-# Ratchet, not target: raised 55 -> 56 on 2026-10-05 with
-# tests/unit/test_unit_input_validation.py (input_validation.py at 98%,
-# ~64 newly covered statements). Raise as coverage grows (#88); never lower.
-fail_under = 56
+# Ratchet, not target: raised 56 -> 70 on 2026-10-07 with
+# tests/unit/test_unit_query.py (query/planner.py 100%, query/parser.py 97%;
+# the weekly full run measures 70.79%, CI's unit job 84.01%).
+# Raise as coverage grows (#88); never lower.
+fail_under = 70

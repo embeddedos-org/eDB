@@ -147,4 +147,5 @@ class RelationalStore:
         self._e.commit()
         rows = cur.fetchall()
         result_rows = [dict(r) for r in rows] if rows else []
-        return QueryResult(rows=result_rows, affected_rows=cur.rowcount)
+        cols = [d[0] for d in cur.description] if cur.description else []
+        return QueryResult(rows=result_rows, affected_rows=cur.rowcount, columns=cols)
