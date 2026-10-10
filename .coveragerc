@@ -13,6 +13,8 @@ show_missing = True
 precision = 2
 # Ratchet, not target: raised 56 -> 70 on 2026-10-07 with
 # tests/unit/test_unit_query.py (query/planner.py 100%, query/parser.py 97%;
-# the weekly full run measures 70.79%, CI's unit job 84.01%).
+# the weekly full run measures 70.79%, CI's unit job 84.01%),
+# then 70 -> 75 on 2026-10-10 with tests/unit/test_unit_ebot.py
+# (ebot/models.py and ebot/sanitizer.py 100%; CI's unit job 86.19%).
 # Raise as coverage grows (#88); never lower.
-fail_under = 70
+fail_under = 75
