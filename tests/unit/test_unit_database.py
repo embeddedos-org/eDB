@@ -5,6 +5,8 @@ the engine property, close(), the savepoint transaction (commit and
 rollback paths), and __repr__. Part of the eDB#88 coverage drive.
 """
 
+import sqlite3
+
 import pytest
 
 from edb.core.database import Database
@@ -21,8 +23,9 @@ def test_context_manager_returns_self_and_closes():
     with Database(":memory:") as db:
         assert isinstance(db, Database)
         assert db.kv is not None
-    # __exit__ closed the engine: the facade is unusable afterwards
-    with pytest.raises(Exception):
+    # __exit__ closed the engine: the in-memory DB is gone, so the lazy
+    # reopen yields an empty database with no _kv table.
+    with pytest.raises(sqlite3.OperationalError):
         db.kv.set("k", "v")
 
 
@@ -33,7 +36,7 @@ def test_engine_property_exposes_storage_engine():
 
 def test_repr_mentions_path():
     with Database(":memory:") as db:
-        assert "Database(path=':memory:')" == repr(db)
+        assert repr(db) == "Database(path=':memory:')"
 
 
 def test_close_is_idempotent_enough_to_call_twice(mem_db):
@@ -48,17 +51,15 @@ def test_transaction_commits(mem_db):
 
 
 def test_transaction_rolls_back_on_exception(mem_db):
-    with pytest.raises(RuntimeError, match="boom"):
-        with mem_db.transaction():
-            mem_db.kv.set("rolled-back", "no")
-            raise RuntimeError("boom")
+    with pytest.raises(RuntimeError, match="boom"), mem_db.transaction():
+        mem_db.kv.set("rolled-back", "no")
+        raise RuntimeError("boom")
     assert mem_db.kv.get("rolled-back") is None
 
 
 def test_transaction_exception_propagates(mem_db):
-    with pytest.raises(ValueError):
-        with mem_db.transaction():
-            raise ValueError("propagates")
+    with pytest.raises(ValueError), mem_db.transaction():
+        raise ValueError("propagates")
 
 
 def test_subsystems_share_the_engine(mem_db):
