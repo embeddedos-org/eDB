@@ -136,7 +136,7 @@ def install_fake_openai(monkeypatch, content='{"type": "kv", "action": "get", "k
     import types
 
     fake = types.ModuleType("openai")
-    fake.OpenAI = lambda **kwargs: FakeOpenAIClient(content, **kwargs)
+    setattr(fake, "OpenAI", lambda **kwargs: FakeOpenAIClient(content, **kwargs))
     monkeypatch.setitem(sys.modules, "openai", fake)
 
 
@@ -192,7 +192,7 @@ class TestLLMTranslator:
         def boom(**kwargs):
             raise RuntimeError("network down")
 
-        fake.OpenAI = boom
+        setattr(fake, "OpenAI", boom)
         monkeypatch.setitem(sys.modules, "openai", fake)
         r = LLMTranslator(api_key="k").translate("show users")
         assert "LLM error" in r.error
