@@ -71,6 +71,46 @@ class NLQueryTranslator:
                 explanation="List all keys",
             )
 
+        # "find <collection> where <key>=<value>" → DOCUMENT FIND
+        # (checked before the generic SELECT arm below, which would
+        # otherwise swallow "find <collection>" and drop the filter)
+        match = re.match(
+            r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=\s*['\"]?(.+?)['\"]?\s*$",
+            text_lower,
+        )
+        if match:
+            collection = match.group(1)
+            key = match.group(2)
+            value = match.group(3)
+            return TranslationResult(
+                original_text=text,
+                translated_query={
+                    "type": "document",
+                    "action": "find",
+                    "collection": collection,
+                    "filter": {key: value},
+                },
+                confidence=0.6,
+                explanation=f"Find in '{collection}' where {key}={value}",
+            )
+
+        # "get key <key>" → KV GET
+        # (checked before the generic SELECT arm; the "key" keyword is
+        # required so plain "get <table>" keeps its SELECT meaning)
+        match = re.match(r"get\s+key\s+['\"]?(.+?)['\"]?\s*$", text_lower)
+        if match:
+            key = match.group(1)
+            return TranslationResult(
+                original_text=text,
+                translated_query={
+                    "type": "kv",
+                    "action": "get",
+                    "key": key,
+                },
+                confidence=0.5,
+                explanation=f"GET key '{key}'",
+            )
+
         # "show all/list <table>" → SELECT
         match = re.match(
             r"(?:show|list|get|display|find)\s+(?:all\s+)?(?:from\s+)?(\w+)",
@@ -145,42 +185,6 @@ class NLQueryTranslator:
                 },
                 confidence=0.6,
                 explanation=f"DELETE from '{table}' where {key}={value}",
-            )
-
-        # "find <collection> where <key>=<value>" → DOCUMENT FIND
-        match = re.match(
-            r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=\s*['\"]?(.+?)['\"]?\s*$",
-            text_lower,
-        )
-        if match:
-            collection = match.group(1)
-            key = match.group(2)
-            value = match.group(3)
-            return TranslationResult(
-                original_text=text,
-                translated_query={
-                    "type": "document",
-                    "action": "find",
-                    "collection": collection,
-                    "filter": {key: value},
-                },
-                confidence=0.6,
-                explanation=f"Find in '{collection}' where {key}={value}",
-            )
-
-        # "get key <key>" → KV GET
-        match = re.match(r"get\s+(?:key\s+)?['\"]?(.+?)['\"]?\s*$", text_lower)
-        if match:
-            key = match.group(1)
-            return TranslationResult(
-                original_text=text,
-                translated_query={
-                    "type": "kv",
-                    "action": "get",
-                    "key": key,
-                },
-                confidence=0.5,
-                explanation=f"GET key '{key}'",
             )
 
         # "list tables/collections/keys" → metadata queries
