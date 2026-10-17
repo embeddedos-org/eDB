@@ -9,6 +9,7 @@ string fields are touched, undecryptable values are left as-is).
 """
 
 import base64
+import binascii
 
 import pytest
 from cryptography.exceptions import InvalidTag
@@ -89,7 +90,7 @@ class TestTamperResistance:
 
     def test_garbage_input_fails(self):
         mgr = EncryptionManager()
-        with pytest.raises(Exception):
+        with pytest.raises((binascii.Error, InvalidTag, ValueError)):
             mgr.decrypt("!!! not base64 !!!")
 
 
