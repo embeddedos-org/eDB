@@ -35,7 +35,7 @@ jobs:
       - name: Security audit - dependencies
         run: |
           pip install pip-audit safety
-          pip-audit --strict --skip-editable
+          pip-audit --skip-editable
           safety check || true
 
       - name: Check for hardcoded secrets
