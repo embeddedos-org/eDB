@@ -34,8 +34,14 @@ jobs:
 
       - name: Security audit - dependencies
         run: |
-          pip install pip-audit safety
+          # Audit before installing safety: safety pulls in nltk, which
+          # pip-audit then flags (PYSEC-2026-3740) even though it is the
+          # audit tool's dependency, not eDB's. Upgrade the base env's
+          # setuptools first for the same reason (PYSEC-2026-3447).
+          pip install --upgrade setuptools
+          pip install pip-audit
           pip-audit --skip-editable
+          pip install safety
           safety check || true
 
       - name: Check for hardcoded secrets
