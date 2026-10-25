@@ -208,6 +208,14 @@ class TestSelect:
         seed_users(users, 3)
         assert users.select("users", limit=2).row_count == 2
 
+    def test_select_offset_without_limit(self, users):
+        # Regression test for #102: a bare OFFSET (no LIMIT) used
+        # to build invalid SQL and raise OperationalError.
+        seed_users(users, 3)
+        result = users.select("users", order_by="id", offset=2)
+        assert result.row_count == 1
+        assert result.rows[0]["name"] == "user2"
+
     def test_select_limit_and_offset(self, users):
         seed_users(users, 3)
         result = users.select("users", order_by="id", limit=1, offset=1)

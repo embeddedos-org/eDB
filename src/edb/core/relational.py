@@ -1,4 +1,5 @@
 """EoS eDB RelationalStore — SQL table management on top of StorageEngine."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -103,9 +104,15 @@ class RelationalStore:
             last_insert_id=(getattr(cur, "lastrowid", 0) or 0),
         )
 
-    def select(self, table: str, columns: list[str] | None = None,
-               where: dict[str, Any] | None = None, limit: int | None = None,
-               offset: int | None = None, order_by: str | None = None) -> QueryResult:
+    def select(
+        self,
+        table: str,
+        columns: list[str] | None = None,
+        where: dict[str, Any] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str | None = None,
+    ) -> QueryResult:
         col_str = ", ".join(columns) if columns else "*"
         sql = f"SELECT {col_str} FROM {table}"
         params: list[Any] = []
@@ -117,6 +124,9 @@ class RelationalStore:
             sql += f" ORDER BY {order_by}"
         if limit is not None:
             sql += f" LIMIT {limit}"
+        elif offset is not None:
+            # SQLite requires a LIMIT before OFFSET; -1 means no limit.
+            sql += " LIMIT -1"
         if offset is not None:
             sql += f" OFFSET {offset}"
         rows = self._e.fetchall(sql, tuple(params))
@@ -128,17 +138,13 @@ class RelationalStore:
         set_clause = ", ".join([f"{k} = ?" for k in data])
         where_clause = " AND ".join([f"{k} = ?" for k in where])
         params = tuple(data.values()) + tuple(where.values())
-        cur = self._e.execute(
-            f"UPDATE {table} SET {set_clause} WHERE {where_clause}", params
-        )
+        cur = self._e.execute(f"UPDATE {table} SET {set_clause} WHERE {where_clause}", params)
         self._e.commit()
         return QueryResult(rows=[], affected_rows=cur.rowcount)
 
     def delete(self, table: str, where: dict[str, Any]) -> QueryResult:
         where_clause = " AND ".join([f"{k} = ?" for k in where])
-        cur = self._e.execute(
-            f"DELETE FROM {table} WHERE {where_clause}", tuple(where.values())
-        )
+        cur = self._e.execute(f"DELETE FROM {table} WHERE {where_clause}", tuple(where.values()))
         self._e.commit()
         return QueryResult(rows=[], affected_rows=cur.rowcount)
 
