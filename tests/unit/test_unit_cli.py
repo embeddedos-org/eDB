@@ -188,3 +188,106 @@ class TestAdminCreate:
         )
         out = capsys.readouterr().out
         assert "Password too weak" in out
+
+
+class TestShellDotCommandsAndEdges:
+    """The shell branches the first cli pass left uncovered: the dot
+    commands against a populated database, empty input, statements with
+    no result rows, rows without columns, and Ctrl-C."""
+
+    def _seeded_db(self, tmp_db_path):
+        from edb.core.database import Database
+
+        db = Database(tmp_db_path)
+        db.docs.create_collection("notes")
+        db.close()
+
+    def test_shell_dot_commands_empty_line_and_ddl(self, monkeypatch, tmp_db_path, capsys):
+        self._seeded_db(tmp_db_path)
+        inputs = iter(
+            [
+                "",
+                "CREATE TABLE t1 (id INTEGER)",
+                ".tables",
+                ".collections",
+                ".graph",
+                "INSERT INTO t1 VALUES (1)",
+                "exit",
+            ]
+        )
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        run_cli(monkeypatch, ["shell", "--db", tmp_db_path])
+        out = capsys.readouterr().out
+        assert "t1" in out  # .tables listed the user table
+        assert "notes" in out  # .collections listed the seeded collection
+        assert "Nodes: 0, Edges: 0" in out  # .graph summary line
+        assert "OK (affected:" in out  # DDL/DML take the no-rows branch
+
+    def test_shell_keyboard_interrupt_exits_cleanly(self, monkeypatch, tmp_db_path, capsys):
+        def interrupting_input(prompt=""):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("builtins.input", interrupting_input)
+        run_cli(monkeypatch, ["shell", "--db", tmp_db_path])
+        out = capsys.readouterr().out
+        assert "Bye!" in out  # the finally block still ran
+
+    def test_shell_rows_without_columns_skip_the_header(self, monkeypatch, tmp_db_path, capsys):
+        from edb.core.relational import QueryResult
+
+        class FakeSQL:
+            @staticmethod
+            def execute_raw(query):
+                return QueryResult(rows=[{"a": 1}], columns=[])
+
+        class FakeDB:
+            sql = FakeSQL()
+
+            def __init__(self, path):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr("edb.core.database.Database", FakeDB)
+        inputs = iter(["SELECT mystery", "exit"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        run_cli(monkeypatch, ["shell", "--db", tmp_db_path])
+        out = capsys.readouterr().out
+        assert "  1" in out  # the row printed with no header above it
+        assert "(1 rows)" in out
+
+
+class TestAdminCreateDuplicate:
+    def test_admin_create_reports_existing_username(self, monkeypatch, tmp_db_path, capsys):
+        from edb.auth.models import Role, UserCreate
+        from edb.auth.users import UserManager
+        from edb.core.database import Database
+
+        db = Database(tmp_db_path)
+        um = UserManager(db.engine)
+        um.create_user(
+            UserCreate(username="root", password="Str0ng!Pass1", role=Role.READ_ONLY),
+            skip_password_check=True,
+        )
+        db.close()
+
+        run_cli(
+            monkeypatch,
+            ["admin", "create", "--username", "root", "--password", "Str0ng!Pass1",
+             "--db", tmp_db_path],
+        )
+        out = capsys.readouterr().out
+        # ensure_admin_exists -> create_user raises ValueError; the CLI
+        # catches it and reports instead of crashing.
+        assert "already exists" in out
+        assert "created successfully" not in out
+
+
+class TestMainGuard:
+    def test_module_runs_main_as_script(self, monkeypatch, capsys):
+        import runpy
+
+        monkeypatch.setattr(sys, "argv", ["edb", "version"])
+        runpy.run_module("edb.cli", run_name="__main__")
+        assert f"eDB v{__version__}" in capsys.readouterr().out
