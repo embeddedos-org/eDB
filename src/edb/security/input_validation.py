@@ -126,6 +126,12 @@ class InputValidator:
                 warnings.append(f"Potential NoSQL injection at {path}: {data[:50]}")
         elif isinstance(data, dict):
             for key, value in data.items():
+                # Keys are attacker-controlled too: {"$ne": null} smuggles a
+                # NoSQL operator past a values-only scan.
+                if isinstance(key, str) and self.check_nosql_injection(key):
+                    warnings.append(
+                        f"Potential NoSQL injection at {path}.{key}: {key[:50]}"
+                    )
                 self._check_dict_recursive(value, warnings, f"{path}.{key}")
         elif isinstance(data, list):
             for i, item in enumerate(data):

@@ -1,8 +1,10 @@
 """EoS eDB FullTextSearch — SQLite FTS5-backed full-text search engine."""
 from __future__ import annotations
+
 import json
 from dataclasses import dataclass
 from typing import Any
+
 from .engine import StorageEngine
 
 _META = """

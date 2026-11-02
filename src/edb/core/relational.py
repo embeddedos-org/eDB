@@ -1,9 +1,12 @@
 """EoS eDB RelationalStore — SQL table management on top of StorageEngine."""
+
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
+
 from .engine import StorageEngine
-from .models import ColumnDefinition, ColumnType, TableSchema
+from .models import ColumnType, TableSchema
 
 _TYPE_MAP = {
     ColumnType.INTEGER: "INTEGER",
@@ -20,6 +23,8 @@ class QueryResult:
     rows: list[dict[str, Any]] = field(default_factory=list)
     affected_rows: int = 0
     columns: list[str] = field(default_factory=list)
+    #: Primary key assigned by the last INSERT, as reported by the driver.
+    last_insert_id: int = 0
 
     @property
     def row_count(self) -> int:
@@ -27,7 +32,14 @@ class QueryResult:
 
     @property
     def last_row_id(self) -> int:
-        return self.affected_rows
+        """Primary key of the row the last INSERT created.
+
+        This previously returned ``affected_rows``, which is a count, not an
+        id -- so a table whose rows were assigned ids 1, 2, 3 reported a
+        last_row_id of 1 every time, and ``POST /sql/insert`` returned that
+        to callers.
+        """
+        return self.last_insert_id
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -70,23 +82,37 @@ class RelationalStore:
             tuple(data.values()),
         )
         self._e.commit()
-        return QueryResult(rows=[], affected_rows=cur.rowcount or 1)
+        return QueryResult(
+            rows=[],
+            affected_rows=cur.rowcount or 1,
+            last_insert_id=cur.lastrowid or 0,
+        )
 
     def insert_many(self, table: str, rows: list[dict[str, Any]]) -> QueryResult:
         if not rows:
             return QueryResult()
         cols = ", ".join(rows[0].keys())
         placeholders = ", ".join(["?"] * len(rows[0]))
-        self._e.executemany(
+        cur = self._e.executemany(
             f"INSERT INTO {table} ({cols}) VALUES ({placeholders})",
             [tuple(r.values()) for r in rows],
         )
         self._e.commit()
-        return QueryResult(rows=[], affected_rows=len(rows))
+        return QueryResult(
+            rows=[],
+            affected_rows=len(rows),
+            last_insert_id=(getattr(cur, "lastrowid", 0) or 0),
+        )
 
-    def select(self, table: str, columns: list[str] | None = None,
-               where: dict[str, Any] | None = None, limit: int | None = None,
-               offset: int | None = None, order_by: str | None = None) -> QueryResult:
+    def select(
+        self,
+        table: str,
+        columns: list[str] | None = None,
+        where: dict[str, Any] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str | None = None,
+    ) -> QueryResult:
         col_str = ", ".join(columns) if columns else "*"
         sql = f"SELECT {col_str} FROM {table}"
         params: list[Any] = []
@@ -98,6 +124,9 @@ class RelationalStore:
             sql += f" ORDER BY {order_by}"
         if limit is not None:
             sql += f" LIMIT {limit}"
+        elif offset is not None:
+            # SQLite requires a LIMIT before OFFSET; -1 means no limit.
+            sql += " LIMIT -1"
         if offset is not None:
             sql += f" OFFSET {offset}"
         rows = self._e.fetchall(sql, tuple(params))
@@ -109,17 +138,13 @@ class RelationalStore:
         set_clause = ", ".join([f"{k} = ?" for k in data])
         where_clause = " AND ".join([f"{k} = ?" for k in where])
         params = tuple(data.values()) + tuple(where.values())
-        cur = self._e.execute(
-            f"UPDATE {table} SET {set_clause} WHERE {where_clause}", params
-        )
+        cur = self._e.execute(f"UPDATE {table} SET {set_clause} WHERE {where_clause}", params)
         self._e.commit()
         return QueryResult(rows=[], affected_rows=cur.rowcount)
 
     def delete(self, table: str, where: dict[str, Any]) -> QueryResult:
         where_clause = " AND ".join([f"{k} = ?" for k in where])
-        cur = self._e.execute(
-            f"DELETE FROM {table} WHERE {where_clause}", tuple(where.values())
-        )
+        cur = self._e.execute(f"DELETE FROM {table} WHERE {where_clause}", tuple(where.values()))
         self._e.commit()
         return QueryResult(rows=[], affected_rows=cur.rowcount)
 
@@ -128,4 +153,5 @@ class RelationalStore:
         self._e.commit()
         rows = cur.fetchall()
         result_rows = [dict(r) for r in rows] if rows else []
-        return QueryResult(rows=result_rows, affected_rows=cur.rowcount)
+        cols = [d[0] for d in cur.description] if cur.description else []
+        return QueryResult(rows=result_rows, affected_rows=cur.rowcount, columns=cols)

@@ -102,10 +102,10 @@ def test_deactivate_user(engine):
 
 def test_ensure_admin_exists(engine):
     mgr = UserManager(engine)
-    mgr.ensure_admin_exists()
+    mgr.ensure_admin_exists("admin", "admin123")
     admin = mgr.get_by_username("admin")
     assert admin is not None
     assert admin.role == Role.ADMIN
-    mgr.ensure_admin_exists()  # idempotent
+    mgr.ensure_admin_exists("admin", "admin123")  # idempotent
     users = mgr.list_users()
     assert sum(1 for u in users if u.username == "admin") == 1

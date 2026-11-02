@@ -29,7 +29,7 @@ def list_keys(
     prefix: str | None = None,
 ) -> dict[str, list[str]]:
     """List all keys, optionally filtered by prefix."""
-    keys = state.database.kv.list_keys(prefix)
+    keys = state.database.kv.list_keys(prefix or "")
     return {"keys": keys}
 
 

@@ -1,4 +1,6 @@
 import unittest
+
+
 class TestEDBFunctional(unittest.TestCase):
     def test_acid_transaction_pipeline(self):
         stages = ["begin", "write", "commit"]

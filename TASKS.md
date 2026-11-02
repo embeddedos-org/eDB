@@ -17,7 +17,8 @@ Status is one of: `todo`, `in-progress`, `blocked`, `review`, `done`.
 
 | ID | Task | Owner | Verified by | Evidence |
 |----|------|-------|-------------|----------|
-| —  | None yet. | — | — | — |
+| T-001 | Fix the query planner treating `QueryResult` objects as raw values | backend | reviewer | `RelationalStore.select/insert/update/delete` all return `QueryResult`, but `src/edb/query/planner.py` used the return values directly: `rows[0].keys()` raised `'QueryResult' object is not subscriptable`, which `execute()` caught and turned into `success=False` — so **every SQL query through the planner failed silently**. `insert` stored the whole `QueryResult` under `data["last_row_id"]`, and `update`/`delete` passed one as `row_count`. All four paths now read `.rows`, `.columns`, `.affected_rows` and `.last_row_id`. eDB's own 39 tests never covered the planner's SQL path; the vendored suite in eApps did. Now 5/5 planner tests and 150 vendored tests pass, eDB's own 39 still pass. |
+| T-002 | Make `last_row_id` report an actual row id | backend | reviewer | `QueryResult.last_row_id` returned `affected_rows`, a count. Measured: inserting three rows that receive ids 1, 2, 3 reported `last_row_id` 1, 1, 1 — and `src/edb/api/routes/sql.py:163` returns that value to HTTP clients as `last_row_id`. `cur.lastrowid` was never captured. Added a `last_insert_id` field populated from the driver; the same three inserts now report 1, 2, 3. |
 
 ---
 

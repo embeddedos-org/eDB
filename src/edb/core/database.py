@@ -1,13 +1,16 @@
 """EoS eDB Database — unified facade over all storage subsystems."""
 from __future__ import annotations
+
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
+from types import TracebackType
+
+from .document import DocumentStore
 from .engine import StorageEngine
-from .keyvalue import KeyValueStore
 from .fts import FullTextSearch
 from .graph import GraphStore
+from .keyvalue import KeyValueStore
 from .relational import RelationalStore
-from .document import DocumentStore
 
 
 class Database:
@@ -32,10 +35,15 @@ class Database:
         self.docs = DocumentStore(self._engine)
 
     # ── Context manager ──────────────────────────────────────────────────────
-    def __enter__(self) -> "Database":
+    def __enter__(self) -> Database:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     @property
@@ -64,3 +72,4 @@ class Database:
     # ── Repr ─────────────────────────────────────────────────────────────────
     def __repr__(self) -> str:
         return f"Database(path={self._path!r})"
+
