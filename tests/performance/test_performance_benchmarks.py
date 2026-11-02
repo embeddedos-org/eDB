@@ -1,5 +1,7 @@
-import unittest
 import time
+import unittest
+
+
 class TestEDBPerformance(unittest.TestCase):
     def test_query_throughput(self):
         start = time.perf_counter()

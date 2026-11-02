@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -60,7 +61,7 @@ def execute_sql(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=warnings)
 
     try:
-        params = tuple(request.params) if request.params else None
+        params = tuple(request.params) if request.params else ()
         result = state.database.sql.execute_raw(request.sql, params)
         state.audit.log(
             event_type="query",
@@ -69,7 +70,9 @@ def execute_sql(
             username=user.get("username"),
             details={"sql": request.sql[:200]},
         )
-        return cast(dict[str, Any], result.model_dump())
+        # QueryResult is a plain dataclass (not pydantic), so serialize
+        # with dataclasses.asdict.
+        return cast(dict[str, Any], asdict(result))
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -119,9 +122,8 @@ def get_table_data(
     """Get data from a table."""
     try:
         result = state.database.sql.select(table_name, limit=limit, offset=offset)
-        rows = result.rows if hasattr(result, 'rows') else result
-        cols = result.columns if hasattr(result, 'columns') else (list(rows[0].keys()) if rows else [])
-        return {"columns": cols, "rows": rows, "row_count": len(rows)}
+        # select() always returns QueryResult; no hasattr fallback needed.
+        return {"columns": result.columns, "rows": result.rows, "row_count": len(result.rows)}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -143,9 +145,7 @@ def select_from_table(
             limit=request.limit,
             offset=request.offset,
         )
-        rows = result.rows if hasattr(result, 'rows') else result
-        cols = result.columns if hasattr(result, 'columns') else (list(rows[0].keys()) if rows else [])
-        return {"columns": cols, "rows": rows, "row_count": len(rows)}
+        return {"columns": result.columns, "rows": result.rows, "row_count": len(result.rows)}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -160,14 +160,13 @@ def insert_into_table(
     """Insert a row into a table."""
     try:
         result = state.database.sql.insert(table_name, request.data)
-        last_row_id = result.last_row_id if hasattr(result, 'last_row_id') else result
         state.audit.log(
             event_type="query",
             action="sql_insert",
             user_id=user.get("sub"),
             details={"table": table_name},
         )
-        return {"last_row_id": last_row_id, "affected_rows": 1}
+        return {"last_row_id": result.last_row_id, "affected_rows": 1}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -182,14 +181,13 @@ def update_table(
     """Update rows in a table."""
     try:
         result = state.database.sql.update(table_name, request.data, request.where)
-        affected = result.affected_rows if hasattr(result, 'affected_rows') else result
         state.audit.log(
             event_type="query",
             action="sql_update",
             user_id=user.get("sub"),
             details={"table": table_name},
         )
-        return {"affected_rows": affected}
+        return {"affected_rows": result.affected_rows}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -204,13 +202,13 @@ def delete_from_table(
     """Delete rows from a table."""
     try:
         result = state.database.sql.delete(table_name, request.where)
-        affected = result.affected_rows if hasattr(result, 'affected_rows') else result
         state.audit.log(
             event_type="query",
             action="sql_delete",
             user_id=user.get("sub"),
             details={"table": table_name},
         )
-        return {"affected_rows": affected}
+        return {"affected_rows": result.affected_rows}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+

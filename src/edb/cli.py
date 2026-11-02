@@ -202,3 +202,4 @@ def _cmd_version() -> None:
 
 if __name__ == "__main__":
     main()
+

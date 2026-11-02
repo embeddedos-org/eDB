@@ -1,0 +1,22 @@
+# eDB
+
+> llms.txt for the eDB repository (embeddedos-org/eDB).
+> Status: the EmbeddedOS embedded database — a small
+> SQL/document store for constrained devices, with a service
+> API (FastAPI) and a natural-language query translator.
+
+eDB is the data layer of the EmbeddedOS ecosystem: an embedded
+database engine sized for MCU-class targets, exposed to apps
+through its API and CLI.
+
+
+## Docs
+
+- [Getting Started with eDB](docs/getting-started.md)
+- [eDB Architecture](docs/architecture.md)
+- [eDB API Reference](docs/api-reference.md)
+
+## Machine-readable
+
+- [llms.txt](llms.txt) — this file
+- [llms-full.txt](llms-full.txt) — the docs above concatenated as one document

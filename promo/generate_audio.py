@@ -18,7 +18,7 @@ SEGMENTS = [
 ]
 
 
-async def generate():
+async def generate() -> None:
     durations = {}
     audio_files = []
 
