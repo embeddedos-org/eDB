@@ -15,6 +15,9 @@ precision = 2
 # tests/unit/test_unit_query.py (query/planner.py 100%, query/parser.py 97%;
 # the weekly full run measures 70.79%, CI's unit job 84.01%),
 # then 70 -> 75 on 2026-10-10 with tests/unit/test_unit_ebot.py
-# (ebot/models.py and ebot/sanitizer.py 100%; CI's unit job 86.19%).
+# (ebot/models.py and ebot/sanitizer.py 100%; CI's unit job 86.19%),
+# then 75 -> 90 on 2026-11-03 with tests/integration/test_api_sql_admin_auth.py
+# (api/routes/sql.py and admin.py 100%, auth.py 96.61%; the weekly full run
+# measures 96.79%, CI's unit job 91.57% -- the unit job is the binding one).
 # Raise as coverage grows (#88); never lower.
-fail_under = 75
+fail_under = 90
