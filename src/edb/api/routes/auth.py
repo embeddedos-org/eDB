@@ -9,8 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from edb.api.dependencies import AppState, get_app_state, get_current_user
 from edb.auth.models import (
     LoginRequest,
+    Role,
     TokenPair,
     UserCreate,
+    UserRegister,
     UserResponse,
 )
 
@@ -19,12 +21,18 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserResponse, status_code=201)
 def register(
-    user_data: UserCreate,
+    user_data: UserRegister,
     state: Annotated[AppState, Depends(get_app_state)],
 ) -> UserResponse:
-    """Register a new user."""
+    """Register a new read-only user. Roles are assigned by an admin."""
     try:
-        user = state.user_manager.create_user(user_data)
+        user = state.user_manager.create_user(
+            UserCreate(
+                username=user_data.username,
+                password=user_data.password,
+                role=Role.READ_ONLY,
+            )
+        )
         state.audit.log(
             event_type="auth",
             action="user_registered",

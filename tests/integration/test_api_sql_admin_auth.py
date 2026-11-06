@@ -304,6 +304,14 @@ class TestAuthRegister:
         )
         assert resp.status_code == 409
 
+    @pytest.mark.parametrize("requested_role", ["admin", "read_write"])
+    def test_caller_supplied_role_is_ignored(self, app_client, requested_role):
+        user = _register(app_client, "eve", READER_PASSWORD, requested_role)
+        assert user["role"] == "read_only"
+
+        token = _login(app_client, "eve", READER_PASSWORD)["access_token"]
+        assert app_client.get("/admin/users", headers=_auth(token)).status_code == 403
+
 
 class TestAuthRefresh:
     def test_refresh_issues_new_tokens(self, app_client):

@@ -55,6 +55,14 @@ class UserCreate(BaseModel):
     role: Role = Role.READ_ONLY
 
 
+class UserRegister(BaseModel):
+    """Public self-registration body. Carries no role: new accounts are always
+    read-only, and only an admin can raise a role (PUT /admin/users/{id}/role)."""
+
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
 class UserResponse(BaseModel):
     id: str
     username: str
