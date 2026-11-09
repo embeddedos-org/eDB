@@ -104,6 +104,27 @@ class TestSQLExecute:
         resp = app_client.post("/sql/execute", json={"sql": "SELECT 1"}, headers=_auth(token))
         assert resp.status_code == 403
 
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "UPDATE _edb_users SET role='admin' WHERE username='writer'",
+            "DELETE FROM _edb_audit_log",
+        ],
+    )
+    def test_read_write_user_forbidden(self, app_client, h, sql):
+        user = _register(app_client, "writer", READER_PASSWORD, "read_only")
+        resp = app_client.put(
+            f"/admin/users/{user['id']}/role", json={"role": "read_write"}, headers=h
+        )
+        assert resp.status_code == 200
+        token = _login(app_client, "writer", READER_PASSWORD)["access_token"]
+
+        resp = app_client.post("/sql/execute", json={"sql": sql}, headers=_auth(token))
+        assert resp.status_code == 403
+
+        users = {u["username"]: u for u in app_client.get("/admin/users", headers=h).json()}
+        assert users["writer"]["role"] == "read_write"
+
 
 class TestSQLTables:
     def test_create_table_invalid_column_returns_400(self, app_client, h):
