@@ -1,7 +1,7 @@
 import pytest
 
 from edb.core.engine import StorageEngine
-from edb.core.keyvalue import KeyValueStore
+from edb.core.keyvalue import KeyValueStore, _prefix_upper_bound
 
 
 @pytest.fixture
@@ -152,3 +152,82 @@ def test_clear_returns_deleted_count(kv_store):
     assert kv_store.clear() == 3
     assert kv_store.count() == 0
     assert kv_store.clear() == 0
+
+
+@pytest.mark.parametrize(
+    ("prefix", "expected"),
+    [
+        ("user_", ["user_1"]),
+        ("a%", ["a%b"]),
+        ("User", ["User_2"]),
+        ("user", ["user_1", "userX", "users"]),
+        ("café:", ["café:1"]),
+        ("nope", []),
+    ],
+)
+def test_list_keys_prefix_is_literal_and_case_sensitive(kv_store, prefix, expected):
+    for key in ["user_1", "userX", "User_2", "users", "a%b", "abc", "café:1", "cafe:1"]:
+        kv_store.set(key, 1)
+
+    assert sorted(kv_store.list_keys(prefix)) == sorted(expected)
+
+
+def test_list_keys_prefix_skips_expired_keys(kv_store):
+    kv_store.set("job_live", 1, ttl=10)
+    kv_store.set("job_dead", 1, ttl=-1)
+
+    assert kv_store.list_keys("job_") == ["job_live"]
+
+
+@pytest.mark.parametrize(
+    ("prefix", "expected"),
+    [
+        ("a\x00", ["a\x00b"]),
+        ("\ud7ff", ["\ud7ffx"]),
+        ("\U0010ffff", ["\U0010ffff", "\U0010ffffz"]),
+        ("k\U0010ffff", ["k\U0010ffff1"]),
+        ("\U0001f600", ["\U0001f600!"]),
+        ("\\", ["\\x"]),
+    ],
+)
+def test_list_keys_prefix_edge_characters(kv_store, prefix, expected):
+    keys = [
+        "a",
+        "a\x00b",
+        "ab",
+        "\ud7ffx",
+        "\ue000",
+        "\U0010ffff",
+        "\U0010ffffz",
+        "k\U0010ffff1",
+        "l",
+        "\U0001f600!",
+        "\U0001f601",
+        "\\x",
+        "]",
+    ]
+    for key in keys:
+        kv_store.set(key, 1)
+
+    assert sorted(kv_store.list_keys(prefix)) == sorted(expected)
+
+
+def test_list_keys_empty_prefix_lists_every_live_key(kv_store):
+    for key in ["a", "B", "\U0010ffff"]:
+        kv_store.set(key, 1)
+    kv_store.set("gone", 1, ttl=-1)
+
+    assert sorted(kv_store.list_keys("")) == sorted(["a", "B", "\U0010ffff"])
+
+
+@pytest.mark.parametrize(
+    ("prefix", "upper"),
+    [
+        ("user_", "user`"),
+        ("\ud7ff", "\ue000"),
+        ("a\U0010ffff", "b"),
+        ("\U0010ffff\U0010ffff", None),
+    ],
+)
+def test_prefix_upper_bound(prefix, upper):
+    assert _prefix_upper_bound(prefix) == upper

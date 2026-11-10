@@ -114,6 +114,17 @@ def test_kv_crud(app_client, admin_token):
     assert resp.status_code == 200
 
 
+def test_kv_list_keys_prefix_is_literal(app_client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    for key in ["user_1", "userX", "User_2"]:
+        resp = app_client.put(f"/kv/{key}", json={"value": 1}, headers=h)
+        assert resp.status_code == 200
+
+    resp = app_client.get("/kv/keys", params={"prefix": "user_"}, headers=h)
+    assert resp.status_code == 200
+    assert resp.json()["keys"] == ["user_1"]
+
+
 def test_admin_stats(app_client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
     resp = app_client.get("/admin/stats", headers=h)

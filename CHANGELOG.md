@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `KeyValueStore.list_keys(prefix)` (and `GET /kv/keys?prefix=`, the `kv list` query) now matches the
+  prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
+  letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
+  now a key range (`key >= prefix AND key < next`), which also uses the key index.
+
+### Changed
+
+- **Behavior change: prefix matching is now case-sensitive and literal** in `list_keys`,
+  `GET /kv/keys?prefix=` and the `kv list` query, like `get()` and `delete()`. `prefix=user` no longer returns
+  `User_2`, and `_` and `%` match only themselves. Callers that relied on ASCII case folding must
+  pass the exact case.
+
 ## [3.0.1] - 2026-05-16
 
 ### Production Release — Unified EmbeddedOS-org v3.0.1
