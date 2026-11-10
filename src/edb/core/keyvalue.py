@@ -18,6 +18,25 @@ CREATE TABLE IF NOT EXISTS _kv (
 
 _EXPIRE_INDEX = "CREATE INDEX IF NOT EXISTS _kv_expires_at_idx ON _kv(expires_at)"
 
+def _prefix_upper_bound(prefix: str) -> str | None:
+    """Smallest string greater than every string that starts with `prefix`.
+
+    Increments the last code point, skipping the surrogate range (which cannot
+    be stored as UTF-8). Returns None when every code point is U+10FFFF, in which
+    case there is no upper bound.
+    """
+    chars = list(prefix)
+    while chars:
+        cp = ord(chars[-1]) + 1
+        if cp == 0xD800:
+            cp = 0xE000
+        if cp <= 0x10FFFF:
+            chars[-1] = chr(cp)
+            return "".join(chars)
+        chars.pop()
+    return None
+
+
 @dataclass
 class KVEntry:
     key: str
@@ -75,10 +94,23 @@ class KeyValueStore:
     def list_keys(self, prefix: str = "") -> list[str]:
         now = time.time()
         if prefix:
-            rows = self._e.execute(
-                "SELECT key FROM _kv WHERE key LIKE ? AND (expires_at IS NULL OR expires_at >= ?)",
-                (prefix + "%", now),
-            ).fetchall()
+            # Keys that start with `prefix` are exactly the keys in
+            # [prefix, upper), compared as UTF-8 bytes (SQLite's BINARY collation,
+            # which orders like code points). Unlike LIKE, this treats "_" and "%"
+            # literally, is case-sensitive like get(), and can use the key index.
+            upper = _prefix_upper_bound(prefix)
+            if upper is None:
+                rows = self._e.execute(
+                    "SELECT key FROM _kv WHERE key >= ?"
+                    " AND (expires_at IS NULL OR expires_at >= ?)",
+                    (prefix, now),
+                ).fetchall()
+            else:
+                rows = self._e.execute(
+                    "SELECT key FROM _kv WHERE key >= ? AND key < ?"
+                    " AND (expires_at IS NULL OR expires_at >= ?)",
+                    (prefix, upper, now),
+                ).fetchall()
         else:
             rows = self._e.execute(
                 "SELECT key FROM _kv WHERE expires_at IS NULL OR expires_at >= ?",
