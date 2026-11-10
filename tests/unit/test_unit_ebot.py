@@ -6,8 +6,11 @@ edb/ebot/sanitizer.py (PromptSanitizer) — the prompt-injection and
 role-gating boundary in front of translated queries.
 """
 
+import pytest
+
 from edb.ebot.models import NLQuery, TranslationResult
 from edb.ebot.sanitizer import PromptSanitizer
+from edb.ebot.translator import NLQueryTranslator
 
 
 class TestNLQuery:
@@ -107,7 +110,7 @@ class TestValidateTranslation:
                 translated_query={"action": action, "table": "users"},
             )
             out = self.s.validate_translation(r, user_role="read_only")
-            assert out.error == f"Permission denied: '{action}' requires write access"
+            assert out.error == f"Permission denied: role 'read_only' cannot '{action}'"
 
     def test_write_actions_allowed_for_writer(self):
         r = TranslationResult(
@@ -117,3 +120,41 @@ class TestValidateTranslation:
         out = self.s.validate_translation(r, user_role="read_write")
         assert out is r
         assert out.error is None
+
+
+class TestValidateTranslationAuthorization:
+    """eBot must apply the same table-name and RBAC rules as the direct routes."""
+
+    def setup_method(self):
+        self.s = PromptSanitizer()
+
+    def check(self, query, role):
+        r = TranslationResult(original_text="q", translated_query=query)
+        return self.s.validate_translation(r, user_role=role)
+
+    @pytest.mark.parametrize("field", ["table", "collection"])
+    @pytest.mark.parametrize("name", ["_edb_users", "_edb_audit_log", "users; x"])
+    def test_internal_or_invalid_name_rejected(self, field, name):
+        out = self.check({"action": "find", field: name}, "admin")
+        assert out.error == f"Invalid or reserved name: '{name}'"
+
+    def test_drop_table_denied_for_read_write(self):
+        out = self.check({"action": "drop_table", "table": "users"}, "read_write")
+        assert out.error == "Permission denied: role 'read_write' cannot 'drop_table'"
+
+    def test_unknown_action_denied(self):
+        out = self.check({"action": "truncate", "table": "users"}, "admin")
+        assert out.error == "Permission denied: role 'admin' cannot 'truncate'"
+
+    def test_unknown_role_denied(self):
+        out = self.check({"action": "select", "table": "users"}, "superuser")
+        assert out.error == "Permission denied: role 'superuser' cannot 'select'"
+
+    def test_arbitrary_raw_sql_denied(self):
+        out = self.check({"type": "sql", "action": "raw", "raw_sql": "DELETE FROM users"}, "admin")
+        assert out.error == "Raw SQL is not allowed via eBot; use POST /sql/execute"
+
+    def test_list_tables_allowed_for_read_only(self):
+        r = NLQueryTranslator().translate("list tables")
+        out = self.s.validate_translation(r, user_role="read_only")
+        assert out is r

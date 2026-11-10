@@ -5,8 +5,31 @@ Validates translated queries and detects prompt injection attempts.
 
 from __future__ import annotations
 
+from edb.auth.models import Permission
+from edb.auth.rbac import RBACManager
 from edb.ebot.models import TranslationResult
+from edb.ebot.translator import LIST_TABLES_SQL
 from edb.security.input_validation import InputValidator
+
+# The permission each translated action needs. An action missing from this map
+# is denied (deny by default), so a new action has to be added deliberately.
+_ACTION_PERMISSIONS: dict[str, Permission] = {
+    "select": Permission.DB_READ,
+    "find": Permission.DB_READ,
+    "find_by_id": Permission.DB_READ,
+    "count": Permission.DB_READ,
+    "get": Permission.DB_READ,
+    "list": Permission.DB_READ,
+    "exists": Permission.DB_READ,
+    "list_collections": Permission.DB_READ,
+    "raw": Permission.DB_READ,
+    "insert": Permission.DB_WRITE,
+    "update": Permission.DB_WRITE,
+    "set": Permission.DB_WRITE,
+    "delete": Permission.DB_DELETE,
+    "create_table": Permission.DB_CREATE_TABLE,
+    "drop_table": Permission.DB_DROP_TABLE,
+}
 
 
 class PromptSanitizer:
@@ -14,6 +37,7 @@ class PromptSanitizer:
 
     def __init__(self) -> None:
         self._validator = InputValidator()
+        self._rbac = RBACManager()
 
     def sanitize_input(self, text: str) -> tuple[str, list[str]]:
         """Sanitize user input text.
@@ -49,12 +73,28 @@ class PromptSanitizer:
                 error=f"Unsafe translated query: {'; '.join(warnings)}",
             )
 
+        # Internal tables (_edb_users, _edb_audit_log, ...) start with "_" and
+        # are never reachable from eBot, matching RelationalStore.list_tables().
+        for field in ("table", "collection"):
+            name = query.get(field)
+            if name and (not self._validator.validate_table_name(name) or name.startswith("_")):
+                return TranslationResult(
+                    original_text=result.original_text,
+                    error=f"Invalid or reserved name: '{name}'",
+                )
+
         action = query.get("action", "")
-        write_actions = {"insert", "update", "delete", "drop_table", "set"}
-        if action in write_actions and user_role == "read_only":
+        if action == "raw" and query.get("raw_sql") != LIST_TABLES_SQL:
             return TranslationResult(
                 original_text=result.original_text,
-                error=f"Permission denied: '{action}' requires write access",
+                error="Raw SQL is not allowed via eBot; use POST /sql/execute",
+            )
+
+        permission = _ACTION_PERMISSIONS.get(action)
+        if permission is None or not self._rbac.has_permission(user_role, permission):
+            return TranslationResult(
+                original_text=result.original_text,
+                error=f"Permission denied: role '{user_role}' cannot '{action}'",
             )
 
         return result
