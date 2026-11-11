@@ -268,3 +268,57 @@ class TestExecuteRaw:
         result = users.execute_raw("SELECT COUNT(*) AS n FROM users")
         assert result.rows == [{"n": 1}]
         assert result.columns == ["n"]
+
+
+BAD_NAME = "id OR 1=1"
+
+
+class TestIdentifierAllowlist:
+    """Table/column names and order_by are pasted into the SQL text, so the
+    store must reject anything outside the identifier allowlist
+    (SECURITY-STANDARDS.md, Injection) before it reaches SQLite."""
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda s: s.create_table(
+                TableSchema(name=BAD_NAME, columns=[ColumnDefinition("id", ColumnType.INTEGER)])
+            ),
+            lambda s: s.create_table(
+                TableSchema(name="t", columns=[ColumnDefinition(BAD_NAME, ColumnType.INTEGER)])
+            ),
+            lambda s: s.drop_table(BAD_NAME),
+            lambda s: s.insert(BAD_NAME, {"name": "x"}),
+            lambda s: s.insert("users", {BAD_NAME: "x"}),
+            lambda s: s.insert_many("users", [{BAD_NAME: "x"}]),
+            lambda s: s.select(BAD_NAME),
+            lambda s: s.select("users", columns=[BAD_NAME]),
+            lambda s: s.select("users", where={BAD_NAME: 1}),
+            lambda s: s.select("users", order_by="age DESC, (SELECT 1)"),
+            lambda s: s.update("users", {BAD_NAME: 1}, {"id": 1}),
+            lambda s: s.update("users", {"age": 1}, {BAD_NAME: 1}),
+        ],
+        ids=[
+            "create_table_name",
+            "create_table_column",
+            "drop_table",
+            "insert_table",
+            "insert_column",
+            "insert_many_column",
+            "select_table",
+            "select_column",
+            "select_where_key",
+            "select_order_by",
+            "update_set_key",
+            "update_where_key",
+        ],
+    )
+    def test_bad_identifier_rejected(self, users, call):
+        with pytest.raises(ValueError, match="Invalid SQL"):
+            call(users)
+
+    def test_where_key_cannot_widen_delete(self, users):
+        seed_users(users, 3)
+        with pytest.raises(ValueError, match="Invalid SQL"):
+            users.delete("users", {BAD_NAME: 0})
+        assert users.select("users").row_count == 3
