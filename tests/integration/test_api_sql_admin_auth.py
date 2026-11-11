@@ -379,3 +379,20 @@ class TestAuthPassword:
         assert resp.json()["detail"] == "Wrong current password"
         # The old password still works.
         _login(app_client, "admin", "Admin@12345678!")
+
+
+class TestEbotAuthorization:
+    @pytest.mark.parametrize("text", ["show all _edb_users", "show all _edb_audit_log"])
+    def test_read_only_cannot_read_internal_tables(self, app_client, reader, text):
+        _, token = reader
+        resp = app_client.post("/ebot/query", json={"text": text}, headers=_auth(token))
+        assert resp.status_code == 200
+        assert resp.json()["success"] is False
+        assert "result" not in resp.json()
+
+    def test_list_tables_hides_internal_tables(self, app_client, reader):
+        _, token = reader
+        resp = app_client.post("/ebot/query", json={"text": "list tables"}, headers=_auth(token))
+        assert resp.json()["success"] is True
+        names = [row["name"] for row in resp.json()["result"]["data"]]
+        assert not [n for n in names if n.startswith("_")]

@@ -10,6 +10,13 @@ from typing import Any
 
 from edb.ebot.models import TranslationResult
 
+# The only raw SQL eBot ever emits ("list tables"). Internal "_" tables are
+# hidden, as in RelationalStore.list_tables(); the sanitizer rejects any other
+# raw SQL.
+LIST_TABLES_SQL = (
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
+)
+
 
 class NLQueryTranslator:
     """Translates natural language queries into eDB query DSL."""
@@ -45,7 +52,7 @@ class NLQueryTranslator:
                 translated_query={
                     "type": "sql",
                     "action": "raw",
-                    "raw_sql": "SELECT name FROM sqlite_master WHERE type='table'",
+                    "raw_sql": LIST_TABLES_SQL,
                 },
                 confidence=0.9,
                 explanation="List all tables",
