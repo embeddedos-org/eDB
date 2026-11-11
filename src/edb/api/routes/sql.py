@@ -53,9 +53,9 @@ class SelectRequest(BaseModel):
 def execute_sql(
     request: SQLExecuteRequest,
     state: Annotated[AppState, Depends(get_app_state)],
-    user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_WRITE))],
+    user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_RAW_SQL))],
 ) -> dict[str, Any]:
-    """Execute raw SQL (requires write permission)."""
+    """Execute raw SQL (admin only: arbitrary SQL bypasses per-table RBAC)."""
     warnings = state.validator.validate_query_input({"sql": request.sql})
     if warnings:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=warnings)

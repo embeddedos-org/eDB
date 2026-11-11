@@ -20,6 +20,7 @@ class Permission(StrEnum):
     DB_DELETE = "db:delete"
     DB_CREATE_TABLE = "db:create_table"
     DB_DROP_TABLE = "db:drop_table"
+    DB_RAW_SQL = "db:raw_sql"
     ADMIN_USERS = "admin:users"
     ADMIN_ROLES = "admin:roles"
     ADMIN_AUDIT = "admin:audit"
