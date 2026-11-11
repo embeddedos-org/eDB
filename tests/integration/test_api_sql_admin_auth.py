@@ -396,3 +396,26 @@ class TestEbotAuthorization:
         assert resp.json()["success"] is True
         names = [row["name"] for row in resp.json()["result"]["data"]]
         assert not [n for n in names if n.startswith("_")]
+
+
+class TestInternalTablesBlocked:
+    @pytest.mark.parametrize("table", ["_edb_users", "_edb_audit_log"])
+    def test_read_only_cannot_read_internal_table(self, app_client, reader, table):
+        _, token = reader
+        resp = app_client.get(f"/sql/tables/{table}", headers=_auth(token))
+        assert resp.status_code == 403
+        assert "password_hash" not in resp.text
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("POST", "/sql/tables/_edb_users/select", {}),
+            ("POST", "/sql/tables/_edb_users/insert", {"data": {"username": "x"}}),
+            ("PUT", "/sql/tables/_edb_users/update", {"data": {"role": "admin"}, "where": {}}),
+            ("DELETE", "/sql/tables/_edb_audit_log/delete", {"where": {"id": 1}}),
+            ("POST", "/sql/tables", {"name": "_shadow", "columns": [{"name": "id"}]}),
+        ],
+    )
+    def test_internal_tables_blocked_even_for_admin(self, app_client, h, method, path, body):
+        resp = app_client.request(method, path, json=body, headers=h)
+        assert resp.status_code == 403
