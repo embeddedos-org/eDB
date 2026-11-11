@@ -396,3 +396,27 @@ class TestEbotAuthorization:
         assert resp.json()["success"] is True
         names = [row["name"] for row in resp.json()["result"]["data"]]
         assert not [n for n in names if n.startswith("_")]
+
+
+class TestTokenReflectsCurrentAccount:
+    def test_deactivated_user_token_rejected(self, app_client, h):
+        user = _register(app_client, "departed", READER_PASSWORD, "read_only")
+        token = _login(app_client, "departed", READER_PASSWORD)["access_token"]
+        assert app_client.get("/sql/tables", headers=_auth(token)).status_code == 200
+
+        assert app_client.delete(f"/admin/users/{user['id']}", headers=h).status_code == 200
+
+        resp = app_client.get("/sql/tables", headers=_auth(token))
+        assert resp.status_code == 401
+
+    def test_demoted_admin_token_loses_admin_rights(self, app_client, h):
+        user = _register(app_client, "former", READER_PASSWORD, "read_only")
+        url = f"/admin/users/{user['id']}/role"
+        assert app_client.put(url, json={"role": "admin"}, headers=h).status_code == 200
+        token = _login(app_client, "former", READER_PASSWORD)["access_token"]
+        assert app_client.get("/admin/users", headers=_auth(token)).status_code == 200
+
+        assert app_client.put(url, json={"role": "read_only"}, headers=h).status_code == 200
+
+        resp = app_client.get("/admin/users", headers=_auth(token))
+        assert resp.status_code == 403
