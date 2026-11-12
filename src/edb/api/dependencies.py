@@ -12,6 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from edb.auth.jwt_handler import JWTHandler
 from edb.auth.models import Permission
 from edb.auth.rbac import RBACManager
+from edb.auth.token_blacklist import TokenBlacklist
 from edb.auth.users import UserManager
 from edb.config import EDBConfig
 from edb.core.database import Database
@@ -35,6 +36,7 @@ class AppState:
             refresh_token_expire_days=self.config.jwt_refresh_expire_days,
         )
         self.user_manager = UserManager(self.database.engine)
+        self.token_blacklist = TokenBlacklist(self.database.engine)
         self.rbac = RBACManager()
         self.audit = AuditLogger(self.database.engine)
         self.encryption = EncryptionManager(self.config.encryption_key)
@@ -75,7 +77,7 @@ async def get_current_user(
         )
 
     payload = state.jwt_handler.verify_token(credentials.credentials)
-    if payload is None:
+    if payload is None or state.token_blacklist.is_revoked(payload.get("jti", "")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 import jwt
 
@@ -40,11 +41,12 @@ class JWTHandler:
             "username": username,
             "role": role,
             "type": "access",
+            "jti": uuid4().hex,
             "iat": now,
             "exp": now + timedelta(minutes=self._access_expire),
         }
         if extra_claims:
-            reserved = {"sub", "exp", "iat", "type", "username", "role"}
+            reserved = {"sub", "exp", "iat", "type", "username", "role", "jti"}
             safe_claims = {k: v for k, v in extra_claims.items() if k not in reserved}
             payload.update(safe_claims)
         return jwt.encode(payload, self._secret, algorithm=self._algorithm)
@@ -55,6 +57,7 @@ class JWTHandler:
         payload = {
             "sub": user_id,
             "type": "refresh",
+            "jti": uuid4().hex,
             "iat": now,
             "exp": now + timedelta(days=self._refresh_expire),
         }
