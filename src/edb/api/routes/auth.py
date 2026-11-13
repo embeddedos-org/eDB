@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from edb.api.dependencies import AppState, get_app_state, get_current_user
 from edb.auth.models import (
     LoginRequest,
+    LogoutRequest,
     Role,
     TokenPair,
     UserCreate,
@@ -86,7 +88,11 @@ def refresh_token(
     token = refresh_token.get("refresh_token", "")
     payload = state.jwt_handler.verify_token(token)
 
-    if payload is None or payload.get("type") != "refresh":
+    if (
+        payload is None
+        or payload.get("type") != "refresh"
+        or state.token_blacklist.is_revoked(payload.get("jti", ""))
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
@@ -99,6 +105,9 @@ def refresh_token(
             detail="User not found or inactive",
         )
 
+    # Refresh tokens are single-use: retire this one so a stolen copy cannot
+    # keep minting access tokens after its owner has refreshed.
+    _revoke(state, payload)
     tokens = state.jwt_handler.create_token_pair(user.id, user.username, user.role.value)
     return TokenPair(
         access_token=tokens["access_token"],
@@ -147,6 +156,24 @@ def change_password(
 @router.post("/logout")
 def logout(
     user: Annotated[dict[str, Any], Depends(get_current_user)],
+    state: Annotated[AppState, Depends(get_app_state)],
+    body: LogoutRequest | None = None,
 ) -> dict[str, str]:
-    """Log out the current user (client should discard tokens)."""
+    """Log out: revoke this access token and, if supplied, the refresh token."""
+    _revoke(state, user)
+    if body and body.refresh_token:
+        refresh = state.jwt_handler.verify_token(body.refresh_token)
+        if refresh and refresh.get("type") == "refresh" and refresh.get("sub") == user["sub"]:
+            _revoke(state, refresh)
     return {"message": "Logged out successfully"}
+
+
+def _revoke(state: AppState, payload: dict[str, Any]) -> None:
+    """Blacklist a verified token until it would have expired anyway.
+    Tokens issued before jti existed cannot be revoked; they simply expire.
+    """
+    jti = payload.get("jti")
+    if not jti:
+        return
+    expires_at = datetime.fromtimestamp(payload["exp"], UTC).isoformat()
+    state.token_blacklist.revoke(jti, user_id=payload.get("sub"), expires_at=expires_at)

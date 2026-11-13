@@ -73,7 +73,14 @@ class TestCreateAccessToken:
         handler = make_handler()
         payload = handler.verify_token(handler.create_access_token("u1", "a", "r"))
         assert payload is not None
-        assert set(payload) == {"sub", "username", "role", "type", "iat", "exp"}
+        assert set(payload) == {"sub", "username", "role", "type", "jti", "iat", "exp"}
+
+    def test_each_token_gets_a_unique_jti(self):
+        handler = make_handler()
+        first = handler.verify_token(handler.create_access_token("u1", "a", "r"))
+        second = handler.verify_token(handler.create_access_token("u1", "a", "r"))
+        assert first is not None and second is not None
+        assert first["jti"] != second["jti"]
 
 
 class TestCreateRefreshToken:
