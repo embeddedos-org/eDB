@@ -141,11 +141,20 @@ class RelationalStore:
         if not rows:
             return QueryResult()
         table = _ident(table)
-        cols = ", ".join(_ident(k) for k in rows[0])
-        placeholders = ", ".join(["?"] * len(rows[0]))
+        keys = list(rows[0])
+        for i, r in enumerate(rows):
+            if set(r) != set(keys):
+                raise ValueError(
+                    f"insert_many: row {i} has columns {sorted(r)}, "
+                    f"expected {sorted(keys)}"
+                )
+        cols = ", ".join(_ident(k) for k in keys)
+        placeholders = ", ".join(["?"] * len(keys))
+        # Bind each row's values in the column order of the first row, not
+        # in the row's own dict order, so {"b": .., "a": ..} lands in a and b.
         self._e.executemany(
             f"INSERT INTO {table} ({cols}) VALUES ({placeholders})",
-            [tuple(r.values()) for r in rows],
+            [tuple(r[k] for k in keys) for r in rows],
         )
         # executemany() leaves cursor.lastrowid unset, so ask SQLite for the id of
         # the last row this connection inserted (the batch's final row).
