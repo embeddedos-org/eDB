@@ -231,3 +231,31 @@ def test_list_keys_empty_prefix_lists_every_live_key(kv_store):
 )
 def test_prefix_upper_bound(prefix, upper):
     assert _prefix_upper_bound(prefix) == upper
+
+
+def test_set_many_is_committed(tmp_path):
+    path = str(tmp_path / "kv.db")
+    engine = StorageEngine(path)
+    KeyValueStore(engine).set_many({"a": 1, "b": 2})
+    engine.close()
+
+    assert KeyValueStore(StorageEngine(path)).get_many(["a", "b"]) == {"a": 1, "b": 2}
+
+
+def test_set_many_can_be_called_twice(kv_store):
+    kv_store.set_many({"a": 1})
+    kv_store.set_many({"b": 2})
+    assert kv_store.count() == 2
+
+
+def test_get_many_expired_delete_is_committed(tmp_path):
+    path = str(tmp_path / "kv.db")
+    engine = StorageEngine(path)
+    kv = KeyValueStore(engine)
+    kv.set("alive", "yes", ttl=10)
+    kv.set("dead", "no", ttl=-1)
+    kv.get_many(["alive", "dead"])
+    engine.close()
+
+    rows = StorageEngine(path).fetchall("SELECT key FROM _kv")
+    assert [r["key"] for r in rows] == ["alive"]
