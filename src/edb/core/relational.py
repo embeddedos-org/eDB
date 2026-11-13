@@ -149,13 +149,13 @@ class RelationalStore:
             params.extend(where.values())
         if order_by:
             sql += f" ORDER BY {_order_by(order_by)}"
-        if limit is not None:
-            sql += f" LIMIT {limit}"
-        elif offset is not None:
+        if limit is not None or offset is not None:
             # SQLite requires a LIMIT before OFFSET; -1 means no limit.
-            sql += " LIMIT -1"
+            sql += " LIMIT ?"
+            params.append(-1 if limit is None else limit)
         if offset is not None:
-            sql += f" OFFSET {offset}"
+            sql += " OFFSET ?"
+            params.append(offset)
         rows = self._e.fetchall(sql, tuple(params))
         result_rows = [dict(r) for r in rows]
         cols_out = list(result_rows[0].keys()) if result_rows else []

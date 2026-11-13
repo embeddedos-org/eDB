@@ -222,6 +222,13 @@ class TestSelect:
         assert result.row_count == 1
         assert result.rows[0]["name"] == "user1"
 
+    @pytest.mark.parametrize("arg", ["limit", "offset"])
+    def test_limit_and_offset_are_bound_not_interpolated(self, users, arg):
+        # A non-integer must reach SQLite as a value, never as SQL text.
+        seed_users(users, 3)
+        with pytest.raises(sqlite3.Error):
+            users.select("users", **{arg: "(SELECT 1)"})
+
 
 class TestUpdateDelete:
     def test_update_matching_row(self, users):
