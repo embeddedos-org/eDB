@@ -89,6 +89,17 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token type",
         )
+    # The token is signed proof of who logged in, not of what they may do now:
+    # an admin can deactivate or re-role a user while their token is still
+    # valid, so the account is re-read on every request.
+    db_user = state.user_manager.get_by_id(payload.get("sub", ""))
+    if db_user is None or not db_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    payload["role"] = db_user.role.value
 
     return payload
 
