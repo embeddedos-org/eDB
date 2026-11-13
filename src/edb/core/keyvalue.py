@@ -156,7 +156,7 @@ class KeyValueStore:
             self._e.execute("BEGIN TRANSACTION")
             try:
                 self._e.execute(f"DELETE FROM _kv WHERE key IN ({del_placeholders})", tuple(keys_to_delete))
-                self._e.commit()
+                self._e.execute("COMMIT")
             except Exception:
                 self._e.execute("ROLLBACK")
 
@@ -173,7 +173,7 @@ class KeyValueStore:
         try:
             for args in batch:
                 self._e.execute("INSERT OR REPLACE INTO _kv (key, value, expires_at) VALUES (?, ?, ?)", args)
-            self._e.commit()
+            self._e.execute("COMMIT")
         except Exception as e:
             self._e.execute("ROLLBACK")
             raise e
