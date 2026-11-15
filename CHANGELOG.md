@@ -8,6 +8,10 @@
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
   now a key range (`key >= prefix AND key < next`), which also uses the key index.
+- `RelationalStore.create_table()` (and `POST /sql/tables`, the `sql create_table` query) now writes
+  `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
+  without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
+  accepted; any other default is rejected with `ValueError` before the table is created.
 
 ### Changed
 

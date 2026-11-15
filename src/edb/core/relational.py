@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -39,6 +40,26 @@ def _order_by(clause: str) -> str:
     if len(parts) == 2 and parts[1].upper() in ("ASC", "DESC"):
         return f"{_ident(parts[0])} {parts[1].upper()}"
     raise ValueError(f"Invalid SQL ORDER BY clause: {clause!r}")
+
+
+def _default_literal(value: Any) -> str:
+    """Render a column default as an SQL literal for ``DEFAULT``.
+
+    DDL cannot bind "?" parameters, so the value is written into the
+    statement. Only plain scalars are accepted; text is quoted with any
+    single quote doubled, bytes become a blob literal.
+    """
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and math.isfinite(value):
+        return repr(value)
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    if isinstance(value, bytes):
+        return f"X'{value.hex()}'"
+    raise ValueError(f"Unsupported column default: {value!r}")
 
 
 @dataclass
@@ -82,6 +103,8 @@ class RelationalStore:
                 col += " NOT NULL"
             if c.unique and not c.primary_key:
                 col += " UNIQUE"
+            if c.default is not None:
+                col += f" DEFAULT {_default_literal(c.default)}"
             cols.append(col)
         ddl = f"CREATE TABLE IF NOT EXISTS {_ident(schema.name)} ({', '.join(cols)})"
         self._e.execute(ddl)
