@@ -129,6 +129,51 @@ class TestCreateTable:
         with pytest.raises(sqlite3.IntegrityError):
             users.insert("users", {"name": "two", "email": "dup@example.com"})
 
+    def test_column_default_fills_omitted_columns(self, store):
+        store.create_table(
+            TableSchema(
+                name="products",
+                columns=[
+                    ColumnDefinition("id", ColumnType.INTEGER, primary_key=True),
+                    ColumnDefinition("name", ColumnType.TEXT, nullable=False),
+                    ColumnDefinition("in_stock", ColumnType.BOOLEAN, default=True),
+                    ColumnDefinition("qty", ColumnType.INTEGER, default=-1),
+                    ColumnDefinition("price", ColumnType.REAL, default=9.5),
+                    ColumnDefinition("note", ColumnType.TEXT, default="it's new"),
+                    ColumnDefinition("raw", ColumnType.BLOB, default=b"\x00\xff"),
+                    ColumnDefinition("tag", ColumnType.TEXT),
+                ],
+            )
+        )
+        store.insert("products", {"name": "widget"})
+        row = store.select("products").rows[0]
+        assert row["in_stock"] == 1
+        assert row["qty"] == -1
+        assert row["price"] == 9.5
+        assert row["note"] == "it's new"
+        assert row["raw"] == b"\x00\xff"
+        assert row["tag"] is None
+
+    def test_column_default_does_not_override_given_value(self, store):
+        store.create_table(
+            TableSchema(
+                name="flags",
+                columns=[ColumnDefinition("on_", ColumnType.BOOLEAN, default=True)],
+            )
+        )
+        store.insert("flags", {"on_": False})
+        assert store.select("flags").rows[0]["on_"] == 0
+
+    @pytest.mark.parametrize("bad", [[1], {"a": 1}, float("nan"), float("inf")])
+    def test_unsupported_column_default_rejected(self, store, bad):
+        schema = TableSchema(
+            name="bad_default",
+            columns=[ColumnDefinition("v", ColumnType.TEXT, default=bad)],
+        )
+        with pytest.raises(ValueError, match="Unsupported column default"):
+            store.create_table(schema)
+        assert "bad_default" not in store.list_tables()
+
 
 class TestDropAndListTables:
     def test_list_tables_empty(self, store):
