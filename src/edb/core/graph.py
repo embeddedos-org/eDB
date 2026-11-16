@@ -116,7 +116,7 @@ class GraphStore:
             query = "SELECT * FROM _graph_edges WHERE dst = ?"
             params = (node_id,)
         else:  # both
-            query = "SELECT * FROM _graph_edges WHERE src = ? OR dst = ?"
+            query = "SELECT * FROM _graph_edges WHERE (src = ? OR dst = ?)"
             params = (node_id, node_id)
         if relationship is not None:
             query += " AND relationship = ?"
