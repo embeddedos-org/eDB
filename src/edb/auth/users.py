@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
+import secrets
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -38,6 +40,12 @@ def validate_password_strength(password: str) -> None:
         errors.append("a special character")
     if errors:
         raise ValueError(f"Password too weak — must contain: {', '.join(errors)}")
+
+
+@functools.cache
+def _unmatchable_password_hash() -> str:
+    """bcrypt hash of a random secret, so a failed lookup costs as much as a wrong password."""
+    return bcrypt.hashpw(secrets.token_bytes(32), bcrypt.gensalt()).decode("utf-8")
 
 
 class UserManager:
@@ -92,9 +100,12 @@ class UserManager:
     def authenticate(self, username: str, password: str) -> User | None:
         """Authenticate a user by username and password."""
         user = self.get_by_username(username)
-        if user is None or not user.is_active:
+        # Run bcrypt even when the account is missing or inactive: returning early
+        # would make those logins measurably faster and reveal which usernames exist.
+        password_hash = user.password_hash if user else _unmatchable_password_hash()
+        if not self._verify_password(password, password_hash):
             return None
-        if not self._verify_password(password, user.password_hash):
+        if user is None or not user.is_active:
             return None
         return user
 
