@@ -2,7 +2,7 @@
 branch = True
 source = .
 omit =
-    *tests*
+    */tests/*
     *setup.py
     *.github*
     *venv*
