@@ -125,6 +125,18 @@ def test_kv_list_keys_prefix_is_literal(app_client, admin_token):
     assert resp.json()["keys"] == ["user_1"]
 
 
+def test_kv_get_returns_a_stored_null(app_client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    resp = app_client.put("/kv/flag", json={"value": None}, headers=h)
+    assert resp.status_code == 200
+
+    resp = app_client.get("/kv/flag", headers=h)
+    assert resp.status_code == 200
+    assert resp.json() == {"key": "flag", "value": None}
+
+    assert app_client.get("/kv/missing", headers=h).status_code == 404
+
+
 def test_admin_stats(app_client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
     resp = app_client.get("/admin/stats", headers=h)
