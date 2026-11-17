@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- `KeyValueStore.set_many()` and `get_many()` now work inside `Database.transaction()` or a caller's
+  `BEGIN`. They opened their own transaction with `BEGIN`, which raised `cannot start a transaction
+  within a transaction` there and rolled back the caller's whole transaction. They now use a savepoint,
+  which nests; outside a transaction they still commit on their own.
 - `KeyValueStore.list_keys(prefix)` (and `GET /kv/keys?prefix=`, the `kv list` query) now matches the
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is

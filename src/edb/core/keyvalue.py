@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS _kv (
 
 _EXPIRE_INDEX = "CREATE INDEX IF NOT EXISTS _kv_expires_at_idx ON _kv(expires_at)"
 
+# set_many() and get_many() wrap their writes in a savepoint rather than
+# BEGIN/COMMIT. A savepoint nests: inside Database.transaction() or a caller's
+# BEGIN it only marks a point to roll back to, and with no transaction open
+# it starts one that RELEASE commits. BEGIN raised "cannot start a transaction
+# within a transaction" there.
+_BATCH_SAVEPOINT = "_kv_batch"
+
 def _prefix_upper_bound(prefix: str) -> str | None:
     """Smallest string greater than every string that starts with `prefix`.
 
@@ -59,6 +66,10 @@ class KeyValueStore:
 
     def _decode(self, s: str) -> Any:
         return json.loads(s)
+
+    def _rollback_batch(self) -> None:
+        self._e.execute(f"ROLLBACK TO SAVEPOINT {_BATCH_SAVEPOINT}")
+        self._e.execute(f"RELEASE SAVEPOINT {_BATCH_SAVEPOINT}")
 
     def _is_expired(self, expires_at: float | None) -> bool:
         return expires_at is not None and time.time() > expires_at
@@ -153,12 +164,12 @@ class KeyValueStore:
 
         if keys_to_delete:
             del_placeholders = ",".join(["?"] * len(keys_to_delete))
-            self._e.execute("BEGIN TRANSACTION")
+            self._e.execute(f"SAVEPOINT {_BATCH_SAVEPOINT}")
             try:
                 self._e.execute(f"DELETE FROM _kv WHERE key IN ({del_placeholders})", tuple(keys_to_delete))
-                self._e.execute("COMMIT")
+                self._e.execute(f"RELEASE SAVEPOINT {_BATCH_SAVEPOINT}")
             except Exception:
-                self._e.execute("ROLLBACK")
+                self._rollback_batch()
 
         return result
 
@@ -169,13 +180,13 @@ class KeyValueStore:
         expires_at = time.time() + ttl if ttl is not None else None
         batch = [(k, self._encode(v), expires_at) for k, v in mapping.items()]
 
-        self._e.execute("BEGIN TRANSACTION")
+        self._e.execute(f"SAVEPOINT {_BATCH_SAVEPOINT}")
         try:
             for args in batch:
                 self._e.execute("INSERT OR REPLACE INTO _kv (key, value, expires_at) VALUES (?, ?, ?)", args)
-            self._e.execute("COMMIT")
+            self._e.execute(f"RELEASE SAVEPOINT {_BATCH_SAVEPOINT}")
         except Exception as e:
-            self._e.execute("ROLLBACK")
+            self._rollback_batch()
             raise e
 
         return [KVEntry(key=k, value=v, expires_at=expires_at) for k, v in mapping.items()]

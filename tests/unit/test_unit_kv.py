@@ -108,7 +108,7 @@ def test_get_many_delete_failure_rolls_back(kv_store):
     # physical deletion failed and the delete transaction rolled back
     fetched = kv_store.get_many(["alive", "dead"])
     assert fetched == {"alive": "yes"}
-    assert "ROLLBACK" in failing.seen
+    assert "ROLLBACK TO SAVEPOINT _kv_batch" in failing.seen
 
 
 def test_set_many_insert_failure_rolls_back_and_raises(kv_store):
@@ -119,7 +119,60 @@ def test_set_many_insert_failure_rolls_back_and_raises(kv_store):
 
     with pytest.raises(RuntimeError, match="injected failure"):
         kv_store.set_many({"a": 1})
-    assert "ROLLBACK" in failing.seen
+    assert "ROLLBACK TO SAVEPOINT _kv_batch" in failing.seen
+
+
+def test_set_many_inside_database_transaction():
+    from edb.core.database import Database
+
+    db = Database(":memory:")
+    with db.transaction():
+        db.kv.set("a", 1)
+        db.kv.set_many({"b": 2, "c": 3})
+    assert db.kv.get_many(["a", "b", "c"]) == {"a": 1, "b": 2, "c": 3}
+    assert not db.engine.conn.in_transaction
+    db.close()
+
+
+def test_set_many_inside_transaction_is_undone_by_outer_rollback():
+    from edb.core.database import Database
+
+    db = Database(":memory:")
+    with pytest.raises(RuntimeError, match="boom"), db.transaction():
+        db.kv.set_many({"a": 1, "b": 2})
+        raise RuntimeError("boom")
+    assert db.kv.count() == 0
+    db.close()
+
+
+def test_get_many_expired_delete_inside_explicit_begin(kv_store):
+    kv_store.set("alive", "yes", ttl=10)
+    kv_store.set("dead", "no", ttl=-1)
+    kv_store._e.execute("BEGIN")
+    assert kv_store.get_many(["alive", "dead"]) == {"alive": "yes"}
+    # The caller's transaction is still open and still the caller's to end.
+    assert kv_store._e.conn.in_transaction
+    kv_store._e.execute("COMMIT")
+    rows = kv_store._e.fetchall("SELECT key FROM _kv")
+    assert [r["key"] for r in rows] == ["alive"]
+
+
+def test_set_many_failure_inside_transaction_keeps_earlier_writes(kv_store):
+    kv_store._e.execute("BEGIN")
+    kv_store.set("a", 1)
+    failing = _FailingEngine(
+        kv_store._e, lambda sql: sql.startswith("INSERT OR REPLACE")
+    )
+    real = kv_store._e
+    kv_store._e = failing
+    with pytest.raises(RuntimeError, match="injected failure"):
+        kv_store.set_many({"b": 2})
+    kv_store._e = real
+    # Only set_many's own work is undone; the caller's transaction survives.
+    assert real.conn.in_transaction
+    real.execute("COMMIT")
+    assert kv_store.get("a") == 1
+    assert kv_store.get("b") is None
 
 
 class _NullRowCursor:
