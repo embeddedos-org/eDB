@@ -63,6 +63,11 @@ def execute_sql(
     try:
         params = tuple(request.params) if request.params else ()
         result = state.database.sql.execute_raw(request.sql, params)
+        if state.database.engine.conn.in_transaction:
+            # A raw BEGIN/SAVEPOINT would leave this worker's connection in an
+            # open transaction, silently swallowing every later commit on it.
+            state.database.engine.rollback()
+            raise ValueError("Transaction control statements are not allowed via /sql/execute")
         state.audit.log(
             event_type="query",
             action="sql_execute",

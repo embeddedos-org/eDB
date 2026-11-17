@@ -125,6 +125,14 @@ class TestSQLExecute:
         users = {u["username"]: u for u in app_client.get("/admin/users", headers=h).json()}
         assert users["writer"]["role"] == "read_write"
 
+    @pytest.mark.parametrize("sql", ["BEGIN", "SAVEPOINT sp1"])
+    def test_transaction_control_rejected(self, app_client, h, sql):
+        resp = app_client.post("/sql/execute", json={"sql": sql}, headers=h)
+        assert resp.status_code == 400
+        assert "Transaction control" in resp.json()["detail"]
+        resp = app_client.post("/sql/execute", json={"sql": "SELECT 1"}, headers=h)
+        assert resp.status_code == 200
+
 
 class TestSQLTables:
     def test_create_table_invalid_column_returns_400(self, app_client, h):
