@@ -309,6 +309,11 @@ class TestPlannerKV(_PlannerCase):
         q = UnifiedQuery(type=QueryType.KV, kv=KVQuery(action="incr", key="k"))
         self.assertEqual(self.planner.execute(q).error, "Unknown KV action: incr")
 
+    def test_get_counts_a_stored_null_as_one_row(self):
+        self.run_q({"type": "kv", "action": "set", "key": "flag", "value": None})
+        g = self.run_q({"type": "kv", "action": "get", "key": "flag"})
+        self.assertEqual((g.data, g.row_count), (None, 1))
+
 
 class TestPlannerDispatch(_PlannerCase):
     def test_type_without_its_payload_is_refused(self):
