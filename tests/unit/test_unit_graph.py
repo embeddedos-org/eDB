@@ -95,6 +95,14 @@ class TestGraphEdges(unittest.TestCase):
         self.assertEqual(len(knows), 1)
         self.assertEqual(knows[0]["target_id"], "b")
 
+    def test_get_edges_both_filtered_by_relationship(self):
+        self.g.add_edge("a", "b", "KNOWS")
+        self.g.add_edge("a", "c", "LIKES")
+        self.g.add_edge("c", "a", "KNOWS")
+        knows = self.g.get_edges("a", direction="both", relationship="KNOWS")
+        pairs = {(e["source_id"], e["target_id"]) for e in knows}
+        self.assertEqual(pairs, {("a", "b"), ("c", "a")})
+
     def test_delete_edge(self):
         e = self.g.add_edge("a", "b", "KNOWS")
         self.assertTrue(self.g.delete_edge(e["id"]))
