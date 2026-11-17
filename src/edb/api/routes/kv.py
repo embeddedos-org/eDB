@@ -41,7 +41,7 @@ def get_value(
 ) -> dict[str, Any]:
     """Get a value by key."""
     value = state.database.kv.get(key)
-    if value is None:
+    if value is None and not state.database.kv.exists(key):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Key not found")
     return {"key": key, "value": value}
 
