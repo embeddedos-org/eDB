@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from edb import __version__
 from edb.api.dependencies import AppState
 from edb.api.middleware import RateLimitMiddleware, RequestLoggingMiddleware
 from edb.api.routes import admin, auth, documents, ebot, graph, kv, sql
@@ -36,7 +37,7 @@ def create_app(config: EDBConfig | None = None) -> FastAPI:
     app = FastAPI(
         title="eDB API",
         description="Unified Multi-Model Database API — SQL, Document, Key-Value, Graph",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
     # lifespan() builds the database and services from this same config.
@@ -69,6 +70,6 @@ def create_app(config: EDBConfig | None = None) -> FastAPI:
 
     @app.get("/health", tags=["Health"])
     def health_check() -> dict[str, str]:
-        return {"status": "healthy", "version": "0.1.0"}
+        return {"status": "healthy", "version": __version__}
 
     return app
