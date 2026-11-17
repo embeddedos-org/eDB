@@ -19,7 +19,7 @@ logger = logging.getLogger("edb.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    config = EDBConfig()
+    config: EDBConfig = app.state.config
     state = AppState(config)
     app.state.edb = state
 
@@ -39,6 +39,8 @@ def create_app(config: EDBConfig | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    # lifespan() builds the database and services from this same config.
+    app.state.config = config
 
     origins = [o.strip() for o in config.cors_origins.split(",") if o.strip()]
     app.add_middleware(

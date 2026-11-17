@@ -196,3 +196,23 @@ def test_rbac_read_only_cannot_write(app_client, admin_token):
         "name": "forbidden", "columns": [{"name": "id", "col_type": "INTEGER"}],
     }, headers=rh)
     assert resp.status_code == 403
+
+
+def test_create_app_uses_the_given_config(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from edb.api.app import create_app
+    from edb.config import EDBConfig
+
+    monkeypatch.chdir(tmp_path)
+    config = EDBConfig(
+        db_path=str(tmp_path / "custom.db"),
+        jwt_secret="test-secret-key-minimum-32-bytes-ok!",
+    )
+    app = create_app(config)
+
+    with TestClient(app):
+        assert app.state.edb.config is config
+
+    assert (tmp_path / "custom.db").exists()
+    assert not (tmp_path / "edb_data.db").exists()
