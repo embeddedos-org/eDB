@@ -12,6 +12,10 @@
   `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
   without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
   accepted; any other default is rejected with `ValueError` before the table is created.
+- eBot's rule-based translator (`POST /ebot/query`) no longer lowercases names, keys and values.
+  It matched its patterns against the lowercased text, so `find users where name=Ada` searched for
+  `ada` and found nothing, and `get key Session-Token` looked up `session-token`. Keywords still
+  match in any case.
 
 ### Changed
 
