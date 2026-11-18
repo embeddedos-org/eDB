@@ -91,6 +91,7 @@ def create_table(
     """Create a new SQL table."""
     from edb.core.models import ColumnDefinition, TableSchema
 
+    _reject_internal_table(request.name)
     try:
         columns = [ColumnDefinition(**col) for col in request.columns]
         schema = TableSchema(name=request.name, columns=columns)
@@ -125,6 +126,7 @@ def get_table_data(
     offset: int = 0,
 ) -> dict[str, Any]:
     """Get data from a table."""
+    _reject_internal_table(table_name)
     try:
         result = state.database.sql.select(table_name, limit=limit, offset=offset)
         # select() always returns QueryResult; no hasattr fallback needed.
@@ -141,6 +143,7 @@ def select_from_table(
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_READ))],
 ) -> dict[str, Any]:
     """Select rows from a table with filtering."""
+    _reject_internal_table(table_name)
     try:
         result = state.database.sql.select(
             table=table_name,
@@ -163,6 +166,7 @@ def insert_into_table(
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_WRITE))],
 ) -> dict[str, Any]:
     """Insert a row into a table."""
+    _reject_internal_table(table_name)
     try:
         result = state.database.sql.insert(table_name, request.data)
         state.audit.log(
@@ -184,6 +188,7 @@ def update_table(
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_WRITE))],
 ) -> dict[str, Any]:
     """Update rows in a table."""
+    _reject_internal_table(table_name)
     try:
         result = state.database.sql.update(table_name, request.data, request.where)
         state.audit.log(
@@ -205,6 +210,7 @@ def delete_from_table(
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_DELETE))],
 ) -> dict[str, Any]:
     """Delete rows from a table."""
+    _reject_internal_table(table_name)
     try:
         result = state.database.sql.delete(table_name, request.where)
         state.audit.log(
@@ -217,3 +223,17 @@ def delete_from_table(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
+
+def _reject_internal_table(table_name: str) -> None:
+    """Refuse eDB's own tables (_edb_users, _edb_audit_log, _kv, ...).
+
+    Every internal table name starts with "_" and list_tables() already hides
+    them; reaching one through these generic routes would expose password
+    hashes and the audit log. Called before each route's try block, whose
+    blanket except would otherwise turn this 403 into a 400.
+    """
+    if table_name.startswith("_"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Table '{table_name}' is internal and cannot be accessed",
+        )
