@@ -188,8 +188,14 @@ def _cmd_backup(args: argparse.Namespace) -> None:
 
 
 def _cmd_restore(args: argparse.Namespace) -> None:
+    import os
     import shutil
 
+    # A -wal/-shm left by the old database would be replayed on top of the restored
+    # file the next time it is opened, so the restore would silently not take effect.
+    for suffix in ("-wal", "-shm"):
+        if os.path.exists(args.db + suffix):
+            os.remove(args.db + suffix)
     shutil.copy2(args.source, args.db)
     print(f"✅ Database restored from {args.source} to {args.db}")
 

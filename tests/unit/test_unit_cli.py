@@ -156,6 +156,28 @@ class TestBackupRestore:
         assert db2.kv.get("k") == "v"
         db2.close()
 
+    def test_restore_ignores_a_stale_wal_of_the_old_database(self, monkeypatch, tmp_path):
+        from edb.core.database import Database
+
+        backup = str(tmp_path / "backup.db")
+        target = str(tmp_path / "live.db")
+        db = Database(target)
+        db.kv.set("k", "backup value")
+        db.engine.backup(backup)
+        db.close()
+
+        # Leave a newer write in live.db-wal, as an unclean shutdown would.
+        db = Database(target)
+        db.kv.set("k", "newer value")
+        stale_wal = (tmp_path / "live.db-wal").read_bytes()
+        db.close()
+        (tmp_path / "live.db-wal").write_bytes(stale_wal)
+
+        run_cli(monkeypatch, ["restore", "--source", backup, "--db", target])
+        restored = Database(target)
+        assert restored.kv.get("k") == "backup value"
+        restored.close()
+
 
 class TestAdminCreate:
     def test_admin_create_with_password_flag(self, monkeypatch, tmp_db_path, capsys):
