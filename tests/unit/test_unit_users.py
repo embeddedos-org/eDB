@@ -99,6 +99,19 @@ class TestCreateUser:
         assert manager.authenticate("bob", "weakpass") is not None
 
 
+def count_password_checks(manager: UserManager, monkeypatch) -> list[str]:
+    """Record every bcrypt check authenticate() makes, while still running it."""
+    calls: list[str] = []
+    real_verify = manager._verify_password
+
+    def spy(password: str, password_hash: str) -> bool:
+        calls.append(password_hash)
+        return real_verify(password, password_hash)
+
+    monkeypatch.setattr(manager, "_verify_password", spy)
+    return calls
+
+
 class TestAuthenticate:
     def test_success_returns_user(self):
         manager = make_manager()
@@ -120,6 +133,20 @@ class TestAuthenticate:
         resp = make_user(manager)
         assert manager.deactivate_user(resp.id) is True
         assert manager.authenticate("alice", STRONG) is None
+
+    def test_unknown_user_still_checks_a_password(self, monkeypatch):
+        manager = make_manager()
+        calls = count_password_checks(manager, monkeypatch)
+        assert manager.authenticate("ghost", STRONG) is None
+        assert len(calls) == 1
+
+    def test_deactivated_user_still_checks_a_password(self, monkeypatch):
+        manager = make_manager()
+        resp = make_user(manager)
+        manager.deactivate_user(resp.id)
+        calls = count_password_checks(manager, monkeypatch)
+        assert manager.authenticate("alice", STRONG) is None
+        assert len(calls) == 1
 
 
 class TestLookupsAndList:
