@@ -255,7 +255,8 @@ class QueryPlanner:
             return UnifiedQueryResult(
                 query_type=QueryType.KV,
                 data=value,
-                row_count=1 if value is not None else 0,
+                # A key can hold None (JSON null) and still exist; see #137.
+                row_count=1 if value is not None or store.exists(q.key) else 0,
             )
 
         elif q.action == "set":
