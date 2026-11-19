@@ -179,6 +179,12 @@ class TestDropAndListTables:
     def test_list_tables_empty(self, store):
         assert store.list_tables() == []
 
+    def test_list_tables_hides_sqlite_internal_tables(self, store):
+        # AUTOINCREMENT makes SQLite create its own sqlite_sequence table.
+        store.execute_raw("CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT)")
+        store.insert("t", {"id": 1})
+        assert store.list_tables() == ["t"]
+
     def test_drop_table(self, users):
         assert "users" in users.list_tables()
         users.drop_table("users")

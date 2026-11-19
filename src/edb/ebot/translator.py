@@ -10,11 +10,12 @@ from typing import Any
 
 from edb.ebot.models import TranslationResult
 
-# The only raw SQL eBot ever emits ("list tables"). Internal "_" tables are
-# hidden, as in RelationalStore.list_tables(); the sanitizer rejects any other
-# raw SQL.
+# The only raw SQL eBot ever emits ("list tables"). Internal "_" and "sqlite_"
+# tables are hidden, as in RelationalStore.list_tables(); the sanitizer rejects
+# any other raw SQL.
 LIST_TABLES_SQL = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
+    " AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
 )
 
 

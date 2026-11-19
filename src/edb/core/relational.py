@@ -118,6 +118,7 @@ class RelationalStore:
     def list_tables(self) -> list[str]:
         rows = self._e.fetchall(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
+            " AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
         )
         return [r["name"] for r in rows]
 
