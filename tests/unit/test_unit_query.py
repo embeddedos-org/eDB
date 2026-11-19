@@ -198,6 +198,13 @@ class TestPlannerSQL(_PlannerCase):
         self.assertTrue(r.success, r.error)
         self.assertIsNone(r.data)
 
+    def test_raw_without_rows_counts_zero_not_minus_one(self):
+        self._make_table()
+        for sql in ("SELECT id FROM users WHERE id = -1", "CREATE TABLE t (x)"):
+            r = self.run_q({"type": "sql", "action": "raw", "raw_sql": sql})
+            self.assertTrue(r.success, r.error)
+            self.assertEqual(r.row_count, 0, sql)
+
     def test_validation_errors_are_results_not_exceptions(self):
         cases: list[tuple[dict[str, Any], str]] = [
             ({"action": "insert", "table": "t"}, "Insert requires 'data'"),

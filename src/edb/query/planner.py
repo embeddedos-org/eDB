@@ -118,7 +118,8 @@ class QueryPlanner:
             return UnifiedQueryResult(
                 query_type=QueryType.SQL,
                 data=result.rows if result.rows else None,
-                row_count=result.row_count or result.affected_rows,
+                # sqlite3 reports rowcount -1 for SELECT and DDL; that is "no rows", not a count.
+                row_count=result.row_count or max(result.affected_rows, 0),
                 metadata={"columns": result.columns},
             )
 
