@@ -388,6 +388,22 @@ class TestAuthPassword:
         # The old password still works.
         _login(app_client, "admin", "Admin@12345678!")
 
+    def test_weak_new_password_returns_400(self, app_client, h):
+        resp = app_client.post(
+            "/auth/password",
+            json={"current_password": "Admin@12345678!", "new_password": "weakpassword"},
+            headers=h,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"].startswith("Password too weak")
+        _login(app_client, "admin", "Admin@12345678!")
+
+    def test_missing_field_returns_422(self, app_client, h):
+        resp = app_client.post(
+            "/auth/password", json={"current_password": "Admin@12345678!"}, headers=h
+        )
+        assert resp.status_code == 422
+
 
 class TestEbotAuthorization:
     @pytest.mark.parametrize("text", ["show all _edb_users", "show all _edb_audit_log"])
