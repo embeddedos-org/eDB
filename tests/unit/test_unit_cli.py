@@ -330,6 +330,23 @@ class TestAdminCreateDuplicate:
         assert "already exists" in out
         assert "created successfully" not in out
 
+    def test_admin_create_when_another_admin_exists(self, monkeypatch, tmp_db_path, capsys):
+        from edb.auth.users import UserManager
+        from edb.core.database import Database
+
+        db = Database(tmp_db_path)
+        UserManager(db.engine).ensure_admin_exists("alice", "Str0ng!Pass1")
+        db.close()
+
+        run_cli(
+            monkeypatch,
+            ["admin", "create", "--username", "bob", "--password", "Str0ng!Pass2",
+             "--db", tmp_db_path],
+        )
+        out = capsys.readouterr().out
+        assert "created successfully" not in out
+        assert "An admin user already exists; 'bob' was not created." in out
+
 
 class TestMainGuard:
     def test_module_runs_main_as_script(self, monkeypatch, capsys):

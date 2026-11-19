@@ -119,8 +119,10 @@ def _cmd_admin_create(args: argparse.Namespace) -> None:
     db = Database(args.db)
     try:
         um = UserManager(db.engine)
-        um.ensure_admin_exists(username=args.username, password=password)
-        print(f"✅ Admin user '{args.username}' created successfully.")
+        if um.ensure_admin_exists(username=args.username, password=password):
+            print(f"✅ Admin user '{args.username}' created successfully.")
+        else:
+            print(f"❌ An admin user already exists; '{args.username}' was not created.")
     except ValueError as e:
         print(f"❌ {e}")
     finally:
