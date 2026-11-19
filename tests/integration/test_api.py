@@ -100,6 +100,13 @@ def test_document_crud(app_client, admin_token):
     assert resp.status_code == 200
 
 
+def test_document_find_rejects_negative_limit_or_offset(app_client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    for body in ({"limit": -1}, {"offset": -1}):
+        resp = app_client.post("/docs/logs/find", json=body, headers=h)
+        assert resp.status_code == 422, body
+
+
 def test_kv_crud(app_client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
 
