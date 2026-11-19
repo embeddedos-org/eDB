@@ -133,7 +133,9 @@ class TestValidateTranslationAuthorization:
         return self.s.validate_translation(r, user_role=role)
 
     @pytest.mark.parametrize("field", ["table", "collection"])
-    @pytest.mark.parametrize("name", ["_edb_users", "_edb_audit_log", "users; x"])
+    @pytest.mark.parametrize(
+        "name", ["_edb_users", "_edb_audit_log", "sqlite_sequence", "SQLITE_SEQUENCE", "users; x"]
+    )
     def test_internal_or_invalid_name_rejected(self, field, name):
         out = self.check({"action": "find", field: name}, "admin")
         assert out.error == f"Invalid or reserved name: '{name}'"

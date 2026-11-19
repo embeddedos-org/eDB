@@ -229,10 +229,11 @@ def _reject_internal_table(table_name: str) -> None:
 
     Every internal table name starts with "_" and list_tables() already hides
     them; reaching one through these generic routes would expose password
-    hashes and the audit log. Called before each route's try block, whose
-    blanket except would otherwise turn this 403 into a 400.
+    hashes and the audit log. SQLite's own tables (sqlite_sequence, created by
+    the audit log's AUTOINCREMENT) are internal too. Called before each route's
+    try block, whose blanket except would otherwise turn this 403 into a 400.
     """
-    if table_name.startswith("_"):
+    if table_name.startswith("_") or table_name.lower().startswith("sqlite_"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Table '{table_name}' is internal and cannot be accessed",

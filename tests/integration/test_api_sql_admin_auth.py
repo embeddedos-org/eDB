@@ -398,12 +398,12 @@ class TestEbotAuthorization:
         assert resp.json()["success"] is False
         assert "result" not in resp.json()
 
-    def test_list_tables_hides_internal_tables(self, app_client, reader):
+    def test_list_tables_hides_internal_tables(self, app_client, reader, items_table):
         _, token = reader
         resp = app_client.post("/ebot/query", json={"text": "list tables"}, headers=_auth(token))
         assert resp.json()["success"] is True
         names = [row["name"] for row in resp.json()["result"]["data"]]
-        assert not [n for n in names if n.startswith("_")]
+        assert names == ["items"]
 
 
 class TestTokenReflectsCurrentAccount:
@@ -431,7 +431,7 @@ class TestTokenReflectsCurrentAccount:
 
 
 class TestInternalTablesBlocked:
-    @pytest.mark.parametrize("table", ["_edb_users", "_edb_audit_log"])
+    @pytest.mark.parametrize("table", ["_edb_users", "_edb_audit_log", "sqlite_sequence"])
     def test_read_only_cannot_read_internal_table(self, app_client, reader, table):
         _, token = reader
         resp = app_client.get(f"/sql/tables/{table}", headers=_auth(token))
