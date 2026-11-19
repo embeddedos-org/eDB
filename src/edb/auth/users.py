@@ -194,7 +194,12 @@ class UserManager:
         return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
     def _verify_password(self, password: str, password_hash: str) -> bool:
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        # bcrypt refuses passwords over 72 bytes with ValueError. No stored password
+        # can be that long, so it is simply a wrong password, not a server error.
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        except ValueError:
+            return False
 
     def _row_to_user(self, row: Any) -> User:
         return User(
