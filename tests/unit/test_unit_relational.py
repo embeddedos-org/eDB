@@ -201,11 +201,9 @@ class TestInsert:
     def test_insert_many(self, users):
         result = seed_users(users, 3)
         assert result.affected_rows == 3
-        # Quirk, pinned as-is: sqlite3's executemany does not surface
-        # a lastrowid, so insert_many reports last_insert_id 0 where
-        # insert reports the real id. Pinning current behaviour; any
-        # change to that is its own issue, not a coverage edit.
-        assert result.last_insert_id == 0
+        # The id of the batch's last row, as insert() reports its row's id.
+        assert result.last_insert_id == 3
+        assert result.last_row_id == 3
         assert users.select("users").row_count == 3
 
     def test_insert_many_empty_rows(self, users):
