@@ -140,6 +140,13 @@ class TestAuthenticate:
         assert manager.authenticate("ghost", STRONG) is None
         assert len(calls) == 1
 
+    def test_password_over_72_bytes_fails_login_instead_of_raising(self):
+        manager = make_manager()
+        make_user(manager)
+        too_long = "A" * 73
+        assert manager.authenticate("alice", too_long) is None
+        assert manager.authenticate("ghost", too_long) is None
+
     def test_deactivated_user_still_checks_a_password(self, monkeypatch):
         manager = make_manager()
         resp = make_user(manager)
