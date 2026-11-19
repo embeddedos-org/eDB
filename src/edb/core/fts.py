@@ -32,6 +32,16 @@ class FullTextSearch:
         return f"_fts_{name}"
 
     def create_index(self, name: str, fields: list[str]) -> None:
+        # CREATE ... IF NOT EXISTS keeps the old columns, so recording new fields
+        # here would leave the index unusable; refuse instead of corrupting it.
+        meta = self._e.execute(
+            "SELECT fields FROM _fts_meta WHERE index_name = ?", (name,)
+        ).fetchone()
+        if meta is not None and json.loads(meta["fields"]) != fields:
+            raise ValueError(
+                f"Index '{name}' already exists with fields {json.loads(meta['fields'])}; "
+                "drop it first to change its fields"
+            )
         tbl = self._table(name)
         cols = ", ".join(fields)
         self._e.execute(
