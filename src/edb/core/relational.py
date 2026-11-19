@@ -142,15 +142,18 @@ class RelationalStore:
         table = _ident(table)
         cols = ", ".join(_ident(k) for k in rows[0])
         placeholders = ", ".join(["?"] * len(rows[0]))
-        cur = self._e.executemany(
+        self._e.executemany(
             f"INSERT INTO {table} ({cols}) VALUES ({placeholders})",
             [tuple(r.values()) for r in rows],
         )
+        # executemany() leaves cursor.lastrowid unset, so ask SQLite for the id of
+        # the last row this connection inserted (the batch's final row).
+        last_id = self._e.fetchone("SELECT last_insert_rowid()")
         self._e.commit()
         return QueryResult(
             rows=[],
             affected_rows=len(rows),
-            last_insert_id=(getattr(cur, "lastrowid", 0) or 0),
+            last_insert_id=last_id[0] if last_id else 0,
         )
 
     def select(
