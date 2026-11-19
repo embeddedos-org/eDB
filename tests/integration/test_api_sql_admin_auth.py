@@ -333,6 +333,15 @@ class TestAuthRegister:
         )
         assert resp.status_code == 409
 
+    @pytest.mark.parametrize(
+        ("password", "detail"),
+        [("weakpassword", "Password too weak"), ("Aa1!" + "x" * 76, "Password too long")],
+    )
+    def test_invalid_password_returns_400(self, app_client, password, detail):
+        resp = app_client.post("/auth/register", json={"username": "newbie", "password": password})
+        assert resp.status_code == 400
+        assert resp.json()["detail"].startswith(detail)
+
     @pytest.mark.parametrize("requested_role", ["admin", "read_write"])
     def test_caller_supplied_role_is_ignored(self, app_client, requested_role):
         user = _register(app_client, "eve", READER_PASSWORD, requested_role)
