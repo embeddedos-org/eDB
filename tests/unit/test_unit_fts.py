@@ -40,6 +40,12 @@ class TestIndexLifecycle:
         fts.create_index("articles", ["title"])
         assert fts.list_indexes() == ["articles"]
 
+    def test_create_index_with_different_fields_is_rejected(self, articles):
+        with pytest.raises(ValueError, match="already exists"):
+            articles.create_index("articles", ["title"])
+        articles.index_document("articles", "1", {"title": "kept", "body": "intact"})
+        assert [r.doc_id for r in articles.search("articles", "intact")] == ["1"]
+
     def test_drop_index_removes_it_from_listing(self, articles):
         articles.drop_index("articles")
         assert articles.list_indexes() == []
