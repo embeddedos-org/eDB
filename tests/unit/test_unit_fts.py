@@ -60,6 +60,26 @@ class TestIndexLifecycle:
         assert fts.list_indexes() == []
 
 
+class TestNameValidation:
+    @pytest.mark.parametrize("name", ["my-index", "a b", "", "docs WHERE doc_id = ? OR 1 --"])
+    def test_invalid_index_name_is_rejected(self, fts, name):
+        with pytest.raises(ValueError, match="Invalid index name"):
+            fts.create_index(name, ["title"])
+        assert fts.list_indexes() == []
+
+    @pytest.mark.parametrize("field", ["my-field", "a b", "1st", "title) --"])
+    def test_invalid_field_name_is_rejected(self, fts, field):
+        with pytest.raises(ValueError, match="Invalid field name"):
+            fts.create_index("articles", [field])
+        assert fts.list_indexes() == []
+
+    def test_crafted_index_name_cannot_delete_other_documents(self, articles):
+        articles.index_document("articles", "1", {"title": "kept", "body": "x"})
+        with pytest.raises(ValueError, match="Invalid index name"):
+            articles.delete_document("articles WHERE doc_id = ? OR 1 --", "nope")
+        assert [r.doc_id for r in articles.search("articles", "kept")] == ["1"]
+
+
 class TestIndexing:
     def test_index_document_on_missing_index_raises(self, fts):
         with pytest.raises(ValueError, match="does not exist"):

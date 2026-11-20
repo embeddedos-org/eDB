@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,12 @@ CREATE TABLE IF NOT EXISTS _fts_meta (
     fields     TEXT NOT NULL
 )
 """
+
+# Index and field names are put into SQL as identifiers (they cannot be bound as
+# parameters), so only plain names are allowed. An index name only needs to be a
+# valid suffix of its "_fts_<name>" table; a field name is a column on its own.
+_INDEX_NAME = re.compile(r"[A-Za-z0-9_]+")
+_FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 @dataclass
@@ -29,9 +36,15 @@ class FullTextSearch:
         self._e.commit()
 
     def _table(self, name: str) -> str:
+        if not isinstance(name, str) or not _INDEX_NAME.fullmatch(name):
+            raise ValueError(f"Invalid index name: {name!r}")
         return f"_fts_{name}"
 
     def create_index(self, name: str, fields: list[str]) -> None:
+        for f in fields:
+            if not isinstance(f, str) or not _FIELD_NAME.fullmatch(f):
+                raise ValueError(f"Invalid field name: {f!r}")
+        tbl = self._table(name)
         # CREATE ... IF NOT EXISTS keeps the old columns, so recording new fields
         # here would leave the index unusable; refuse instead of corrupting it.
         meta = self._e.execute(
@@ -42,7 +55,6 @@ class FullTextSearch:
                 f"Index '{name}' already exists with fields {json.loads(meta['fields'])}; "
                 "drop it first to change its fields"
             )
-        tbl = self._table(name)
         cols = ", ".join(fields)
         self._e.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS {tbl} "
