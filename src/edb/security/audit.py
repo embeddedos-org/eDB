@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,6 +22,11 @@ class AuditLogger:
 
     def __init__(self, engine: StorageEngine) -> None:
         self._engine = engine
+        # FastAPI runs sync routes in a thread pool, so two requests can log at
+        # once. Reading the last hash and inserting the next entry must not
+        # interleave, or both entries chain to the same predecessor and
+        # verify_chain() reports the log as tampered.
+        self._lock = threading.Lock()
         self._ensure_table()
 
     def _ensure_table(self) -> None:
@@ -50,32 +56,33 @@ class AuditLogger:
         ip_address: str | None = None,
     ) -> int:
         """Log an audit event. Returns the entry ID."""
-        timestamp = datetime.now(UTC).isoformat()
         details_json = json.dumps(details) if details else None
-        prev_hash = self._get_last_hash()
+        with self._lock:
+            timestamp = datetime.now(UTC).isoformat()
+            prev_hash = self._get_last_hash()
 
-        entry_data = f"{timestamp}|{event_type}|{user_id}|{action}|{details_json}|{prev_hash}"
-        entry_hash = hashlib.sha256(entry_data.encode("utf-8")).hexdigest()
+            entry_data = f"{timestamp}|{event_type}|{user_id}|{action}|{details_json}|{prev_hash}"
+            entry_hash = hashlib.sha256(entry_data.encode("utf-8")).hexdigest()
 
-        cursor = self._engine.execute(
-            f"""INSERT INTO "{AUDIT_TABLE}"
-            (timestamp, event_type, user_id, username, action,
-             details, ip_address, prev_hash, entry_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                timestamp,
-                event_type,
-                user_id,
-                username,
-                action,
-                details_json,
-                ip_address,
-                prev_hash,
-                entry_hash,
-            ),
-        )
-        self._engine.commit()
-        return cursor.lastrowid or 0
+            cursor = self._engine.execute(
+                f"""INSERT INTO "{AUDIT_TABLE}"
+                (timestamp, event_type, user_id, username, action,
+                 details, ip_address, prev_hash, entry_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    timestamp,
+                    event_type,
+                    user_id,
+                    username,
+                    action,
+                    details_json,
+                    ip_address,
+                    prev_hash,
+                    entry_hash,
+                ),
+            )
+            self._engine.commit()
+            return cursor.lastrowid or 0
 
     def get_logs(
         self,

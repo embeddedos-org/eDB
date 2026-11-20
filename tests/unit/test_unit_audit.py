@@ -8,6 +8,8 @@ both edited payloads and broken links, and retrieval filters and
 pagination behave as the API layer expects.
 """
 
+import threading
+
 import pytest
 
 from edb.core.engine import StorageEngine
@@ -164,3 +166,23 @@ class TestReopen:
         ok, _ = second.verify_chain()
         assert ok is True
         assert second.count() == 2
+
+
+class TestConcurrentLogging:
+    def test_concurrent_writers_keep_a_single_chain(self, tmp_path):
+        # A file database, because each thread opens its own connection and
+        # every thread's ":memory:" database would be a different, empty one.
+        audit = AuditLogger(StorageEngine(str(tmp_path / "audit.db")))
+
+        def write():
+            for _ in range(50):
+                audit.log("query", "select")
+
+        threads = [threading.Thread(target=write) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert audit.count() == 400
+        assert audit.verify_chain() == (True, "Audit chain verified: 400 entries intact")
