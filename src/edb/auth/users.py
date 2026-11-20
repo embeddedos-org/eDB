@@ -157,8 +157,11 @@ class UserManager:
         self._engine.commit()
         return bool(cursor.rowcount > 0)
 
-    def ensure_admin_exists(self, username: str, password: str) -> None:
-        """Create an admin user with the provided credentials if no admins exist."""
+    def ensure_admin_exists(self, username: str, password: str) -> bool:
+        """Create an admin user with the provided credentials if no admins exist.
+
+        Returns True if the admin was created, False if an admin already existed.
+        """
         validate_password_strength(password)
         row = self._engine.fetchone(
             f'SELECT id FROM "{USERS_TABLE}" WHERE role = ?', (Role.ADMIN.value,)
@@ -169,8 +172,9 @@ class UserManager:
                 skip_password_check=True,
             )
             logger.info("Admin user '%s' created.", username)
-        else:
-            logger.info("Admin user already exists, skipping creation.")
+            return True
+        logger.info("Admin user already exists, skipping creation.")
+        return False
 
     def change_password(self, user_id: str, current_password: str, new_password: str) -> bool:
         """Change a user password after verifying the current one."""

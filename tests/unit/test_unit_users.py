@@ -210,6 +210,11 @@ class TestEnsureAdminExists:
         assert manager.get_by_username("other") is None
         assert len(manager.list_users()) == 1
 
+    def test_reports_whether_it_created_the_admin(self):
+        manager = make_manager()
+        assert manager.ensure_admin_exists("root", STRONG) is True
+        assert manager.ensure_admin_exists("other", STRONG2) is False
+
     def test_weak_admin_password_rejected(self):
         manager = make_manager()
         with pytest.raises(ValueError, match="too weak"):
