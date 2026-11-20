@@ -86,6 +86,46 @@ class TestNLQueryTranslator:
         r = self.t.translate("get key session-token")
         assert r.translated_query == {"type": "kv", "action": "get", "key": "session-token"}
 
+    def test_find_keeps_case_of_collection_field_and_value(self):
+        r = self.t.translate("find Users where Name=Ada")
+        assert r.translated_query == {
+            "type": "document",
+            "action": "find",
+            "collection": "Users",
+            "filter": {"Name": "Ada"},
+        }
+
+    def test_get_key_keeps_case(self):
+        r = self.t.translate("GET KEY Session-Token")
+        assert r.translated_query == {"type": "kv", "action": "get", "key": "Session-Token"}
+
+    def test_insert_keeps_case_of_values(self):
+        r = self.t.translate("insert name=Ada into users")
+        assert r.translated_query["data"] == {"name": "Ada"}
+
+    def test_delete_where_keeps_case_of_value(self):
+        r = self.t.translate("Delete from users where name='Ada'")
+        assert r.translated_query["where"] == {"name": "Ada"}
+
+    def test_count_keeps_case_of_collection(self):
+        r = self.t.translate("How many Orders")
+        assert r.translated_query["collection"] == "Orders"
+
+    def test_find_with_mixed_case_value_matches_stored_document(self):
+        from edb.core.database import Database
+        from edb.query.parser import QueryParser
+        from edb.query.planner import QueryPlanner
+
+        db = Database(":memory:")
+        try:
+            db.docs.insert("users", {"name": "Ada"})
+            r = self.t.translate("find users where name=Ada")
+            result = QueryPlanner(db).execute(QueryParser().parse(r.translated_query))
+            assert result.success
+            assert result.row_count == 1
+        finally:
+            db.close()
+
     def test_gibberish_errors_with_hint(self):
         r = self.t.translate("florp the wobble")
         assert r.error is not None

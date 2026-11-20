@@ -43,7 +43,12 @@ class NLQueryTranslator:
     def _rule_based_translate(
         self, text: str, context: dict[str, Any] | None = None
     ) -> TranslationResult:
-        """Rule-based translation using regex patterns."""
+        """Rule-based translation using regex patterns.
+
+        Keywords match case-insensitively, but names, keys and values are
+        taken from the original text: collection names, KV keys and stored
+        values are case-sensitive, so lowercasing them changed the query.
+        """
         text_lower = text.lower().strip()
 
         # "list tables/collections/keys" → metadata queries (must be checked before generic pattern)
@@ -84,7 +89,8 @@ class NLQueryTranslator:
         # otherwise swallow "find <collection>" and drop the filter)
         match = re.match(
             r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=\s*['\"]?(.+?)['\"]?\s*$",
-            text_lower,
+            text,
+            re.IGNORECASE,
         )
         if match:
             collection = match.group(1)
@@ -105,7 +111,7 @@ class NLQueryTranslator:
         # "get key <key>" → KV GET
         # (checked before the generic SELECT arm; the "key" keyword is
         # required so plain "get <table>" keeps its SELECT meaning)
-        match = re.match(r"get\s+key\s+['\"]?(.+?)['\"]?\s*$", text_lower)
+        match = re.match(r"get\s+key\s+['\"]?(.+?)['\"]?\s*$", text, re.IGNORECASE)
         if match:
             key = match.group(1)
             return TranslationResult(
@@ -122,7 +128,8 @@ class NLQueryTranslator:
         # "show all/list <table>" → SELECT
         match = re.match(
             r"(?:show|list|get|display|find)\s+(?:all\s+)?(?:from\s+)?(\w+)",
-            text_lower,
+            text,
+            re.IGNORECASE,
         )
         if match:
             table = match.group(1)
@@ -138,7 +145,7 @@ class NLQueryTranslator:
             )
 
         # "count <collection/table>" → COUNT
-        match = re.match(r"(?:count|how many)\s+(\w+)", text_lower)
+        match = re.match(r"(?:count|how many)\s+(\w+)", text, re.IGNORECASE)
         if match:
             target = match.group(1)
             return TranslationResult(
@@ -155,7 +162,8 @@ class NLQueryTranslator:
         # "insert/add <data> into <table>" → INSERT
         match = re.match(
             r"(?:insert|add|create)\s+(.+?)\s+(?:into|to|in)\s+(\w+)",
-            text_lower,
+            text,
+            re.IGNORECASE,
         )
         if match:
             data_str = match.group(1)
@@ -177,7 +185,8 @@ class NLQueryTranslator:
         # "delete from <table> where <key>=<value>" → DELETE
         match = re.match(
             r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=\s*['\"]?(.+?)['\"]?\s*$",
-            text_lower,
+            text,
+            re.IGNORECASE,
         )
         if match:
             table = match.group(1)
