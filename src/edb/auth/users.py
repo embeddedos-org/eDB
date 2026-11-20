@@ -19,6 +19,7 @@ USERS_TABLE = "_edb_users"
 logger = logging.getLogger("edb.auth.users")
 
 MIN_PASSWORD_LENGTH = 12
+MAX_PASSWORD_BYTES = 72  # bcrypt cannot hash a longer password
 PASSWORD_POLICY = (
     "Password must be at least 12 characters and contain uppercase, "
     "lowercase, digit, and special character."
@@ -27,6 +28,8 @@ PASSWORD_POLICY = (
 
 def validate_password_strength(password: str) -> None:
     """Enforce password complexity requirements."""
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"Password too long — must be at most {MAX_PASSWORD_BYTES} bytes")
     errors: list[str] = []
     if len(password) < MIN_PASSWORD_LENGTH:
         errors.append(f"at least {MIN_PASSWORD_LENGTH} characters")

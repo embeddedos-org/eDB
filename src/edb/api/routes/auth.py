@@ -18,6 +18,7 @@ from edb.auth.models import (
     UserRegister,
     UserResponse,
 )
+from edb.auth.users import validate_password_strength
 
 router = APIRouter()
 
@@ -28,6 +29,11 @@ def register(
     state: Annotated[AppState, Depends(get_app_state)],
 ) -> UserResponse:
     """Register a new read-only user. Roles are assigned by an admin."""
+    # A password that breaks the rules is a bad request; 409 is for a taken username.
+    try:
+        validate_password_strength(user_data.password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     try:
         user = state.user_manager.create_user(
             UserCreate(

@@ -60,6 +60,11 @@ class TestValidatePasswordStrength:
         assert "special" in message
         assert str(MIN_PASSWORD_LENGTH) in message
 
+    def test_over_72_bytes_raises_a_clear_message(self):
+        # 70 characters, but "é" is 2 bytes in UTF-8, so this is 73 bytes.
+        with pytest.raises(ValueError, match="at most 72 bytes"):
+            validate_password_strength("Aa1!" + "é" * 3 + "x" * 63)
+
 
 class TestCreateUser:
     def test_create_returns_response_and_persists(self):
