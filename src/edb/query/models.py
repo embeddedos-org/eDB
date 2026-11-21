@@ -53,7 +53,7 @@ class KVQuery(BaseModel):
     action: str  # get, set, delete, list, exists
     key: str | None = None
     value: Any = None
-    ttl: int | None = None
+    ttl: float | None = None  # seconds, as KeyValueStore.set() accepts
     prefix: str | None = None
 
 
