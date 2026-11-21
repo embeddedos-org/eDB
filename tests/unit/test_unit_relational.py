@@ -303,6 +303,40 @@ class TestUpdateDelete:
         assert result.affected_rows == 0
 
 
+class TestWhereNone:
+    """A None value in a where dict means SQL NULL. "col = NULL" is never
+    true in SQL, so it has to be written as "col IS NULL"."""
+
+    @pytest.fixture
+    def with_null_age(self, users):
+        seed_users(users, 2)
+        users.insert("users", {"name": "nobody", "email": "nobody@example.com"})
+        return users
+
+    def test_select_where_none_matches_null(self, with_null_age):
+        result = with_null_age.select("users", where={"age": None})
+        assert [r["name"] for r in result.rows] == ["nobody"]
+
+    def test_select_where_none_anded_with_value(self, with_null_age):
+        hit = with_null_age.select("users", where={"age": None, "name": "nobody"})
+        miss = with_null_age.select("users", where={"age": None, "name": "user0"})
+        assert hit.row_count == 1
+        assert miss.row_count == 0
+
+    def test_update_where_none(self, with_null_age):
+        result = with_null_age.update("users", {"age": 0}, {"age": None})
+        assert result.affected_rows == 1
+        assert with_null_age.select("users", where={"name": "nobody"}).rows[0]["age"] == 0
+
+    def test_delete_where_none(self, with_null_age):
+        result = with_null_age.delete("users", {"age": None})
+        assert result.affected_rows == 1
+        assert [r["name"] for r in with_null_age.select("users", order_by="id").rows] == [
+            "user0",
+            "user1",
+        ]
+
+
 class TestExecuteRaw:
     def test_select_with_params(self, users):
         seed_users(users, 3)

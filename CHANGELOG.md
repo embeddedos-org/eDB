@@ -15,6 +15,10 @@
   `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
   without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
   accepted; any other default is rejected with `ValueError` before the table is created.
+- `RelationalStore.select()`, `update()` and `delete()` (and the `/sql` table routes and `sql` queries
+  that use them) now match a `None` value in `where` against `NULL`. They wrote `col = ?` with a
+  `None` parameter, which is never true in SQL, so `where={"age": None}` matched no rows. A `None`
+  value is now written as `col IS NULL`.
 
 ### Changed
 

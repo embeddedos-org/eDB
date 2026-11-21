@@ -62,6 +62,23 @@ def _default_literal(value: Any) -> str:
     raise ValueError(f"Unsupported column default: {value!r}")
 
 
+def _where(where: dict[str, Any]) -> tuple[str, list[Any]]:
+    """Build the condition and parameters for a ``where`` dict.
+
+    Keys are ANDed. A None value means SQL NULL; "col = NULL" is never true,
+    so it is written as "col IS NULL" with no parameter.
+    """
+    clauses: list[str] = []
+    params: list[Any] = []
+    for k, v in where.items():
+        if v is None:
+            clauses.append(f"{_ident(k)} IS NULL")
+        else:
+            clauses.append(f"{_ident(k)} = ?")
+            params.append(v)
+    return " AND ".join(clauses), params
+
+
 @dataclass
 class QueryResult:
     rows: list[dict[str, Any]] = field(default_factory=list)
@@ -171,9 +188,9 @@ class RelationalStore:
         sql = f"SELECT {col_str} FROM {table}"
         params: list[Any] = []
         if where:
-            clauses = [f"{_ident(k)} = ?" for k in where]
-            sql += " WHERE " + " AND ".join(clauses)
-            params.extend(where.values())
+            where_clause, where_params = _where(where)
+            sql += " WHERE " + where_clause
+            params.extend(where_params)
         if order_by:
             sql += f" ORDER BY {_order_by(order_by)}"
         if limit is not None or offset is not None:
@@ -191,16 +208,16 @@ class RelationalStore:
     def update(self, table: str, data: dict[str, Any], where: dict[str, Any]) -> QueryResult:
         table = _ident(table)
         set_clause = ", ".join([f"{_ident(k)} = ?" for k in data])
-        where_clause = " AND ".join([f"{_ident(k)} = ?" for k in where])
-        params = tuple(data.values()) + tuple(where.values())
+        where_clause, where_params = _where(where)
+        params = tuple(data.values()) + tuple(where_params)
         cur = self._e.execute(f"UPDATE {table} SET {set_clause} WHERE {where_clause}", params)
         self._e.commit()
         return QueryResult(rows=[], affected_rows=cur.rowcount)
 
     def delete(self, table: str, where: dict[str, Any]) -> QueryResult:
         table = _ident(table)
-        where_clause = " AND ".join([f"{_ident(k)} = ?" for k in where])
-        cur = self._e.execute(f"DELETE FROM {table} WHERE {where_clause}", tuple(where.values()))
+        where_clause, where_params = _where(where)
+        cur = self._e.execute(f"DELETE FROM {table} WHERE {where_clause}", tuple(where_params))
         self._e.commit()
         return QueryResult(rows=[], affected_rows=cur.rowcount)
 
