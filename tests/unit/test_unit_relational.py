@@ -212,6 +212,35 @@ class TestInsert:
         assert result.last_row_id == 3
         assert users.select("users").row_count == 3
 
+    def test_insert_many_binds_by_column_name(self, users):
+        # Later rows may list their keys in a different order than the
+        # first row; each value must still land in its own column.
+        users.insert_many(
+            "users",
+            [
+                {"name": "ann", "email": "ann@example.com", "age": 30},
+                {"age": 41, "email": "bob@example.com", "name": "bob"},
+            ],
+        )
+        rows = users.select("users", order_by="id").rows
+        assert [(r["name"], r["email"], r["age"]) for r in rows] == [
+            ("ann", "ann@example.com", 30),
+            ("bob", "bob@example.com", 41),
+        ]
+
+    def test_insert_many_rejects_rows_with_other_columns(self, users):
+        # Same column count, different names: without a check the value of
+        # "age" would be bound to "email".
+        with pytest.raises(ValueError, match="row 1"):
+            users.insert_many(
+                "users",
+                [
+                    {"name": "ann", "email": "ann@example.com"},
+                    {"name": "bob", "age": 41},
+                ],
+            )
+        assert users.select("users").row_count == 0
+
     def test_insert_many_empty_rows(self, users):
         result = users.insert_many("users", [])
         assert result.affected_rows == 0

@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
+  key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
+  second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
+  instead of binding values to the wrong columns.
 - `KeyValueStore.list_keys(prefix)` (and `GET /kv/keys?prefix=`, the `kv list` query) now matches the
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
