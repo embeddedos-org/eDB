@@ -91,6 +91,23 @@ class TestIndexing:
         assert len(results) == 1
         assert results[0].fields == {"title": "Only Title", "body": ""}
 
+    def test_none_fields_are_indexed_as_empty_text(self, articles):
+        articles.index_document("articles", "1", {"title": "Only Title", "body": None})
+        results = articles.search("articles", "Title")
+        assert len(results) == 1
+        assert results[0].fields == {"title": "Only Title", "body": ""}
+
+    def test_none_field_does_not_match_a_search_for_none(self, articles):
+        articles.index_document("articles", "1", {"title": "Hello", "body": None})
+        articles.index_document("articles", "2", {"title": None, "body": "world"})
+        assert articles.search("articles", "none") == []
+        assert articles.search("articles", "body:None") == []
+
+    def test_falsy_values_other_than_none_are_still_indexed(self, articles):
+        articles.index_document("articles", "1", {"title": 0, "body": False})
+        assert [r.doc_id for r in articles.search("articles", "title:0")] == ["1"]
+        assert [r.doc_id for r in articles.search("articles", "False")] == ["1"]
+
     def test_reindexing_same_doc_replaces_rather_than_duplicates(self, articles):
         articles.index_document("articles", "1", {"title": "Draft", "body": "alpha"})
         articles.index_document("articles", "1", {"title": "Final", "body": "omega"})

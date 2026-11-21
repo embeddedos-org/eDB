@@ -80,7 +80,11 @@ class FullTextSearch:
         tbl = self._table(index)
         # Delete existing entry for this doc_id
         self._e.execute(f"DELETE FROM {tbl} WHERE doc_id = ?", (doc_id,))
-        vals = [doc_id] + [str(data.get(f, "")) for f in fields]
+        # A field that is missing or None is indexed as empty text. str(None)
+        # would store the word "None", which a search for "none" then matches.
+        vals = [doc_id] + [
+            "" if data.get(f) is None else str(data[f]) for f in fields
+        ]
         placeholders = ", ".join(["?"] * len(vals))
         self._e.execute(f"INSERT INTO {tbl} VALUES ({placeholders})", vals)
         self._e.commit()
