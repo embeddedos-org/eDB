@@ -162,7 +162,9 @@ def _cmd_shell(args: argparse.Namespace) -> None:
 
             try:
                 result = db.sql.execute_raw(query)
-                if result.rows:
+                # A statement that returns rows has columns even when no row
+                # matched, so print the header and "(0 rows)" for it.
+                if result.rows or result.columns:
                     if result.columns:
                         print("  " + " | ".join(result.columns))
                         print("  " + "-+-".join("-" * max(len(c), 8) for c in result.columns))
@@ -170,7 +172,8 @@ def _cmd_shell(args: argparse.Namespace) -> None:
                         print("  " + " | ".join(str(v) for v in row.values()))
                     print(f"  ({result.row_count} rows)")
                 else:
-                    print(f"  OK (affected: {result.affected_rows})")
+                    # sqlite3 reports rowcount -1 for DDL such as CREATE TABLE.
+                    print(f"  OK (affected: {max(result.affected_rows, 0)})")
             except Exception as e:
                 print(f"  Error: {e}")
     except KeyboardInterrupt:
