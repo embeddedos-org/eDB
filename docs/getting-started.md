@@ -131,7 +131,8 @@ eDB is configured via environment variables (prefixed with `EDB_`):
 | `EDB_EBOT_ENABLED` | `true` | Enable ebot AI queries |
 | `EDB_AUDIT_ENABLED` | `true` | Enable audit logging |
 
-You can also use a `.env` file in the project root.
+You can also use a `.env` file in the project root. For `edb serve`, the `--db`, `--host` and `--port`
+flags take precedence over these variables.
 
 ## Running Tests
 

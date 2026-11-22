@@ -103,6 +103,75 @@ class TestServe:
         assert captured["reload"] is False
 
 
+class TestServeConfig:
+    """edb serve takes a flag first, then EDB_* variables / .env, then the defaults."""
+
+    @staticmethod
+    def _serve(monkeypatch, tmp_path, argv, env=None, dotenv=None):
+        captured = {}
+
+        class FakeUvicorn:
+            @staticmethod
+            def run(app, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setitem(sys.modules, "uvicorn", FakeUvicorn())
+        monkeypatch.chdir(tmp_path)  # .env is read from the working directory
+        for key in ("EDB_DB_PATH", "EDB_API_HOST", "EDB_API_PORT"):
+            # setenv first so monkeypatch restores the key after the CLI sets it
+            monkeypatch.setenv(key, "")
+            monkeypatch.delenv(key)
+        for key, value in (env or {}).items():
+            monkeypatch.setenv(key, value)
+        if dotenv is not None:
+            (tmp_path / ".env").write_text(dotenv, encoding="utf-8")
+        run_cli(monkeypatch, ["serve", *argv])
+        return captured
+
+    def test_flag_db_wins_over_exported_env(self, monkeypatch, tmp_path, capsys):
+        self._serve(monkeypatch, tmp_path, ["--db", "from_flag.db"],
+                    env={"EDB_DB_PATH": "from_env.db"})
+        assert os.environ["EDB_DB_PATH"] == "from_flag.db"
+        assert "Database: from_flag.db" in capsys.readouterr().out
+
+    def test_env_used_when_no_flags(self, monkeypatch, tmp_path, capsys):
+        captured = self._serve(monkeypatch, tmp_path, [], env={
+            "EDB_DB_PATH": "from_env.db", "EDB_API_HOST": "0.0.0.0", "EDB_API_PORT": "9002",
+        })
+        assert captured["host"] == "0.0.0.0"
+        assert captured["port"] == 9002
+        assert os.environ["EDB_DB_PATH"] == "from_env.db"
+        out = capsys.readouterr().out
+        assert "Starting eDB API server on 0.0.0.0:9002" in out
+        assert "Database: from_env.db" in out
+
+    def test_dotenv_used_when_no_flags(self, monkeypatch, tmp_path, capsys):
+        captured = self._serve(monkeypatch, tmp_path, [], dotenv=(
+            "EDB_DB_PATH=from_dotenv.db\nEDB_API_HOST=0.0.0.0\nEDB_API_PORT=9001\n"
+        ))
+        assert captured["host"] == "0.0.0.0"
+        assert captured["port"] == 9001
+        assert os.environ["EDB_DB_PATH"] == "from_dotenv.db"
+        assert "Database: from_dotenv.db" in capsys.readouterr().out
+
+    def test_flags_win_over_dotenv(self, monkeypatch, tmp_path):
+        captured = self._serve(
+            monkeypatch, tmp_path,
+            ["--host", "127.0.0.2", "--port", "9100", "--db", "from_flag.db"],
+            dotenv="EDB_DB_PATH=from_dotenv.db\nEDB_API_HOST=0.0.0.0\nEDB_API_PORT=9001\n",
+        )
+        assert captured["host"] == "127.0.0.2"
+        assert captured["port"] == 9100
+        assert os.environ["EDB_DB_PATH"] == "from_flag.db"
+
+    def test_defaults_without_flags_env_or_dotenv(self, monkeypatch, tmp_path, capsys):
+        captured = self._serve(monkeypatch, tmp_path, [])
+        assert captured["host"] == "127.0.0.1"
+        assert captured["port"] == 8000
+        assert os.environ["EDB_DB_PATH"] == "edb_data.db"
+        assert "Database: edb_data.db" in capsys.readouterr().out
+
+
 class TestShell:
     def test_shell_exits_on_eof(self, monkeypatch, tmp_db_path, capsys):
         def fake_input(prompt=""):

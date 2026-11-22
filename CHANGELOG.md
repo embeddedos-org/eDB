@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- `edb serve` reads `EDB_DB_PATH`, `EDB_API_HOST` and `EDB_API_PORT` from the environment and `.env`
+  when `--db`, `--host` or `--port` is not given, and a flag that is given wins. Before, `--host` and
+  `--port` always fell back to `127.0.0.1:8000`, a `.env` database path was replaced by `edb_data.db`,
+  and an exported `EDB_DB_PATH` silently overrode `--db` while the startup banner showed the `--db` path.
 - `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
