@@ -27,6 +27,9 @@
   that use them) now match a `None` value in `where` against `NULL`. They wrote `col = ?` with a
   `None` parameter, which is never true in SQL, so `where={"age": None}` matched no rows. A `None`
   value is now written as `col IS NULL`.
+- `edb shell` prints the column header and `(0 rows)` for a query that matches no rows, and
+  `OK (affected: 0)` for statements such as `CREATE TABLE`. Both printed `OK (affected: -1)`, sqlite3's
+  rowcount for statements it does not count.
 
 ### Changed
 

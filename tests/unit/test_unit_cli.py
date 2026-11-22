@@ -205,6 +205,50 @@ class TestShell:
         assert "Error:" in capsys.readouterr().out
 
 
+    @staticmethod
+    def _session(monkeypatch, tmp_db_path, capsys, lines):
+        inputs = iter([*lines, "exit"])
+
+        def fake_input(prompt=""):
+            return next(inputs)
+
+        monkeypatch.setattr("builtins.input", fake_input)
+        run_cli(monkeypatch, ["shell", "--db", tmp_db_path])
+        return capsys.readouterr().out
+
+    def test_shell_shows_header_and_zero_rows_for_an_empty_select(
+        self, monkeypatch, tmp_db_path, capsys
+    ):
+        out = self._session(monkeypatch, tmp_db_path, capsys, [
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)",
+            "SELECT id, name FROM products WHERE id = 2",
+        ])
+        assert "  id | name\n" in out
+        assert "(0 rows)" in out
+        assert "affected: -1" not in out
+
+    def test_shell_reports_zero_affected_for_ddl(self, monkeypatch, tmp_db_path, capsys):
+        out = self._session(monkeypatch, tmp_db_path, capsys, [
+            "CREATE TABLE t (x INTEGER)",
+        ])
+        assert "OK (affected: 0)" in out
+        assert "affected: -1" not in out
+
+    def test_shell_still_reports_rows_and_affected_counts(
+        self, monkeypatch, tmp_db_path, capsys
+    ):
+        out = self._session(monkeypatch, tmp_db_path, capsys, [
+            "CREATE TABLE t (x INTEGER)",
+            "INSERT INTO t VALUES (1), (2)",
+            "SELECT x FROM t ORDER BY x",
+            "DELETE FROM t WHERE x = 99",
+        ])
+        assert "OK (affected: 2)" in out
+        assert "  x\n" in out and "  1\n" in out and "  2\n" in out
+        assert "(2 rows)" in out
+        assert out.count("OK (affected: 0)") == 2  # CREATE TABLE and the DELETE
+
+
 class TestBackupRestore:
     def test_backup_and_restore_round_trip(self, monkeypatch, tmp_db_path, tmp_path, capsys):
         from edb.core.database import Database
