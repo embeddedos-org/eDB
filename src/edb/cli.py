@@ -14,10 +14,12 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     serve_p = subparsers.add_parser("serve", help="Start the eDB API server")
-    serve_p.add_argument("--host", default="127.0.0.1")
-    serve_p.add_argument("--port", type=int, default=8000)
+    # No defaults here: an omitted flag falls back to EDB_API_HOST, EDB_API_PORT
+    # and EDB_DB_PATH (environment or .env), then to the EDBConfig defaults.
+    serve_p.add_argument("--host", default=None, help="Default: EDB_API_HOST or 127.0.0.1")
+    serve_p.add_argument("--port", type=int, default=None, help="Default: EDB_API_PORT or 8000")
     serve_p.add_argument("--reload", action="store_true")
-    serve_p.add_argument("--db", default="edb_data.db")
+    serve_p.add_argument("--db", default=None, help="Default: EDB_DB_PATH or edb_data.db")
 
     init_p = subparsers.add_parser("init", help="Initialize a new eDB database")
     init_p.add_argument("--db", default="edb_data.db")
@@ -68,19 +70,32 @@ def main() -> None:
 def _cmd_serve(args: argparse.Namespace) -> None:
     import os
 
-    os.environ.setdefault("EDB_DB_PATH", args.db)
-    os.environ.setdefault("EDB_API_HOST", args.host)
-    os.environ.setdefault("EDB_API_PORT", str(args.port))
+    from edb.config import EDBConfig
+
+    # A flag on the command line wins; otherwise use what the app itself would
+    # read (EDB_* environment variables, then .env, then the defaults). The
+    # secrets are passed in only so that this lookup does not generate and log
+    # throwaway ones; the server loads its own configuration.
+    config = EDBConfig(jwt_secret="unused", encryption_key="unused")
+    host = args.host if args.host is not None else config.api_host
+    port = args.port if args.port is not None else config.api_port
+    db_path = args.db if args.db is not None else config.db_path
+
+    # create_app() builds its EDBConfig from the environment, so pass the
+    # resolved values on; an exported EDB_DB_PATH must not override --db.
+    os.environ["EDB_DB_PATH"] = db_path
+    os.environ["EDB_API_HOST"] = host
+    os.environ["EDB_API_PORT"] = str(port)
 
     import uvicorn
 
-    print(f"🚀 Starting eDB API server on {args.host}:{args.port}")
-    print(f"📁 Database: {args.db}")
-    print(f"📖 API docs: http://{args.host}:{args.port}/docs")
+    print(f"🚀 Starting eDB API server on {host}:{port}")
+    print(f"📁 Database: {db_path}")
+    print(f"📖 API docs: http://{host}:{port}/docs")
     uvicorn.run(
         "edb.api.app:create_app",
-        host=args.host,
-        port=args.port,
+        host=host,
+        port=port,
         reload=args.reload,
         factory=True,
     )
