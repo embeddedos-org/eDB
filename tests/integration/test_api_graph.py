@@ -59,6 +59,8 @@ def test_find_nodes_by_label_and_limit(graph, h):
 def test_delete_node_then_missing(graph, h):
     assert graph.delete("/graph/nodes/b", headers=h).json() == {"deleted": True}
     assert graph.get("/graph/nodes/b", headers=h).status_code == 404
+    # Its edges a-KNOWS->b and b-KNOWS->c go too; only c-LIKES->a is left.
+    assert graph.get("/graph/stats", headers=h).json() == {"node_count": 2, "edge_count": 1}
 
     resp = graph.delete("/graph/nodes/b", headers=h)
     assert resp.status_code == 404
