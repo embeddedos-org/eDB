@@ -136,6 +136,12 @@ class TestParserDocumentAndKV(unittest.TestCase):
         q = self.p.parse({"type": "kv", "action": "set", "key": "k", "value": 1, "ttl": 1.5})
         self.assertEqual(q.kv.ttl, 1.5)
 
+    def test_kv_ttl_rejects_nan_and_infinity(self):
+        for ttl in (float("nan"), float("inf"), float("-inf")):
+            body = {"type": "kv", "action": "set", "key": "k", "value": 1, "ttl": ttl}
+            with self.subTest(ttl=ttl), self.assertRaises(QueryParseError):
+                self.p.parse(body)
+
     def test_unknown_kv_action_is_refused(self):
         with self.assertRaises(QueryParseError):
             self.p.parse({"type": "kv", "action": "incr", "key": "k"})

@@ -53,7 +53,9 @@ class KVQuery(BaseModel):
     action: str  # get, set, delete, list, exists
     key: str | None = None
     value: Any = None
-    ttl: float | None = None  # seconds, as KeyValueStore.set() accepts
+    # Seconds, as KeyValueStore.set() accepts. NaN or infinity would make a key
+    # that never expires, so only finite values are allowed.
+    ttl: float | None = Field(default=None, allow_inf_nan=False)
     prefix: str | None = None
 
 
