@@ -14,11 +14,13 @@ def h(admin_token):
 
 @pytest.fixture
 def graph(app_client, h):
-    """Nodes a, b (Person) and c (Company); edges a-KNOWS->b, a-LIKES->c, c-KNOWS->a."""
+    """Nodes a, b (Person) and c (Company); edges a-KNOWS->b, b-KNOWS->c, c-LIKES->a.
+    c is two KNOWS hops from a, so a depth-1 traversal must not reach it.
+    """
     for node_id, label in (("a", "Person"), ("b", "Person"), ("c", "Company")):
         resp = app_client.post("/graph/nodes", json={"label": label, "node_id": node_id}, headers=h)
         assert resp.status_code == 201
-    for src, dst, rel in (("a", "b", "KNOWS"), ("a", "c", "LIKES"), ("c", "a", "KNOWS")):
+    for src, dst, rel in (("a", "b", "KNOWS"), ("b", "c", "KNOWS"), ("c", "a", "LIKES")):
         resp = app_client.post(
             "/graph/edges",
             json={"source_id": src, "target_id": dst, "relationship": rel},
@@ -64,10 +66,10 @@ def test_delete_node_then_missing(graph, h):
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
-        ({"direction": "out"}, [("a", "b"), ("a", "c")]),
+        ({"direction": "out"}, [("a", "b")]),
         ({"direction": "in"}, [("c", "a")]),
-        ({}, [("a", "b"), ("a", "c"), ("c", "a")]),
-        ({"relationship": "KNOWS"}, [("a", "b"), ("c", "a")]),
+        ({}, [("a", "b"), ("c", "a")]),
+        ({"relationship": "KNOWS"}, [("a", "b")]),
     ],
 )
 def test_get_edges_by_direction_and_relationship(graph, h, query, expected):
@@ -78,10 +80,12 @@ def test_get_edges_by_direction_and_relationship(graph, h, query, expected):
 
 
 def test_traverse_follows_relationship_up_to_depth(graph, h):
-    resp = graph.post("/graph/traverse", json={"start_id": "a", "relationship": "KNOWS"}, headers=h)
+    body = {"start_id": "a", "relationship": "KNOWS", "depth": 1}
+    resp = graph.post("/graph/traverse", json=body, headers=h)
     assert resp.status_code == 200
-    assert _ids(resp.json()["nodes"]) == ["a", "b"]
+    assert _ids(resp.json()["nodes"]) == ["a", "b"]  # c is a second hop away
 
-    resp = graph.post("/graph/traverse", json={"start_id": "a", "depth": 2}, headers=h)
+    body["depth"] = 2
+    resp = graph.post("/graph/traverse", json=body, headers=h)
     assert _ids(resp.json()["nodes"]) == ["a", "b", "c"]
     assert resp.json()["count"] == 3
