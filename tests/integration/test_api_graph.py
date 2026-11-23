@@ -15,6 +15,7 @@ def h(admin_token):
 @pytest.fixture
 def graph(app_client, h):
     """Nodes a, b (Person) and c (Company); edges a-KNOWS->b, b-KNOWS->c, c-LIKES->a.
+
     c is two KNOWS hops from a, so a depth-1 traversal must not reach it.
     """
     for node_id, label in (("a", "Person"), ("b", "Person"), ("c", "Company")):
@@ -50,8 +51,9 @@ def test_find_nodes_by_label_and_limit(graph, h):
     assert _ids(resp.json()["nodes"]) == ["a", "b"]
     assert resp.json()["count"] == 2
 
-    resp = graph.get("/graph/nodes", params={"limit": 1}, headers=h)
-    assert resp.json()["count"] == 1
+    assert graph.get("/graph/nodes", headers=h).json()["count"] == 3
+    resp = graph.get("/graph/nodes", params={"limit": 2}, headers=h)
+    assert resp.json()["count"] == 2
 
 
 def test_delete_node_then_missing(graph, h):

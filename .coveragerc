@@ -19,8 +19,8 @@ precision = 2
 # then 75 -> 90 on 2026-11-03 with tests/integration/test_api_sql_admin_auth.py
 # (api/routes/sql.py and admin.py 100%, auth.py 96.61%; the weekly full run
 # measures 96.79%, CI's unit job 91.57% -- the unit job is the binding one),
-# then 90 -> 95 on 2026-11-19 with tests/integration/test_api_graph.py
-# (api/routes/graph.py 100%; the weekly full run measures 97.88%, CI's unit
-# job 98.63%).
+# then 90 -> 95 on 2026-11-19: CI's unit job already measured 98.63%, so
+# the raise uses headroom the unit suite had; tests/integration/test_api_graph.py
+# takes api/routes/graph.py to 100% in the weekly full run (97.88%).
 # Raise as coverage grows (#88); never lower.
 fail_under = 95
