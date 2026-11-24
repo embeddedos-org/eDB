@@ -92,6 +92,16 @@ class TestIsRevokedForUser:
         bl.revoke("jti-one", user_id="u1")
         assert bl.is_revoked_for_user("u1", 0) is False
 
+    def test_cutoff_survives_reopening_the_database(self, tmp_path):
+        path = str(tmp_path / "blacklist.db")
+        engine = StorageEngine(path)
+        cutoff = self.revoke_all(engine, TokenBlacklist(engine), "u1")
+        engine.close()
+
+        reopened = TokenBlacklist(StorageEngine(path))
+        assert reopened.is_revoked_for_user("u1", cutoff - 1) is True
+        assert reopened.is_revoked_for_user("u1", cutoff) is False
+
 
 class TestCleanupExpired:
     def test_cleanup_removes_only_expired(self):

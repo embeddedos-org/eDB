@@ -54,7 +54,12 @@ class TokenBlacklist:
         return row is not None
 
     def revoke_all_for_user(self, user_id: str) -> int:
-        """Revoke all tokens for a user. Returns count revoked."""
+        """Revoke every token issued to ``user_id`` up to now.
+
+        Records a cutoff marker rather than listing tokens: ``is_revoked_for_user()``
+        then rejects any token issued before it. Returns 1 if the marker was
+        written (0 only if an identical marker already existed).
+        """
         now = datetime.now(UTC).isoformat()
         cursor = self._engine.execute(
             f"""INSERT OR IGNORE INTO "{BLACKLIST_TABLE}" (token_jti, user_id, revoked_at)
@@ -65,8 +70,13 @@ class TokenBlacklist:
         return int(cursor.rowcount)
 
     def is_revoked_for_user(self, user_id: str, issued_at: int) -> bool:
-        """Check if a token issued at ``issued_at`` (its ``iat``, in whole seconds)
-        predates the user's latest ``revoke_all_for_user()`` call."""
+        """Check if a token predates the user's latest ``revoke_all_for_user()`` call.
+
+        ``user_id`` is the token's ``sub`` and ``issued_at`` its ``iat`` (Unix time,
+        whole seconds). Returns True if the token was issued in an earlier second
+        than the latest cutoff for that user, False if it was issued in the same
+        second or later, or if the user has no cutoff.
+        """
         row = self._engine.fetchone(
             f"""SELECT MAX(revoked_at) AS cutoff FROM "{BLACKLIST_TABLE}"
             WHERE user_id = ? AND token_jti GLOB 'user_revoke_*'""",
@@ -75,9 +85,9 @@ class TokenBlacklist:
         if row is None or row["cutoff"] is None:
             return False
         # iat has whole-second precision, so a token issued in the same second as
-        # the revocation is kept: a login straight after a password change must
-        # work. That leaves a window of under a second for a token issued just
-        # before it.
+        # the cutoff is kept: a login straight after a password change must work.
+        # The cost is that a token issued earlier in that same second also stays
+        # valid for the rest of its lifetime.
         return issued_at < int(datetime.fromisoformat(row["cutoff"]).timestamp())
 
     def cleanup_expired(self) -> int:

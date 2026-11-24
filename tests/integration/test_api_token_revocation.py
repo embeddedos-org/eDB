@@ -1,7 +1,9 @@
 """Integration tests for token revocation: logout, single-use refresh tokens and
 password changes."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+
+import jwt
 
 ADMIN = {"username": "admin", "password": "Admin@12345678!"}
 
@@ -78,7 +80,9 @@ def test_password_change_signs_out_every_existing_session(app_client, monkeypatc
     other = _login_earlier(app_client, monkeypatch)
     own = _login_earlier(app_client, monkeypatch)
 
-    assert _change_password(app_client, own, ADMIN["password"]).status_code == 200
+    resp = _change_password(app_client, own, ADMIN["password"])
+    assert resp.status_code == 200
+    assert "log in again" in resp.json()["message"]
 
     for tokens in (other, own):
         assert app_client.get("/auth/me", headers=_auth(tokens["access_token"])).status_code == 401
@@ -102,3 +106,11 @@ def test_failed_password_change_signs_nobody_out(app_client, monkeypatch):
     tokens = _login_earlier(app_client, monkeypatch)
     assert _change_password(app_client, tokens, "wrong-password").status_code == 400
     assert app_client.get("/auth/me", headers=_auth(tokens["access_token"])).status_code == 200
+
+
+def test_refresh_token_without_a_subject_returns_401(app_client):
+    state = app_client.app.state.edb
+    now = datetime.now(UTC)
+    claims = {"type": "refresh", "jti": "no-sub", "iat": now, "exp": now + timedelta(minutes=5)}
+    token = jwt.encode(claims, state.config.jwt_secret, algorithm="HS256")
+    assert app_client.post("/auth/refresh", json={"refresh_token": token}).status_code == 401
