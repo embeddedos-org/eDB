@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 
 from edb.api.dependencies import AppState, get_app_state, require_permission
 from edb.auth.models import Permission
@@ -29,7 +29,7 @@ class AddEdgeRequest(BaseModel):
 class TraverseRequest(BaseModel):
     start_id: str
     relationship: str | None = None
-    depth: int = 1
+    depth: int = Field(default=1, ge=1)
 
 
 @router.post("/nodes", status_code=status.HTTP_201_CREATED)
@@ -59,7 +59,9 @@ def find_nodes(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_READ))],
     label: str | None = None,
-    limit: int = 100,
+    # SQLite treats a negative LIMIT as "no limit", so limit=-1 returned every node,
+    # and a value past SQLite's 64-bit range raised OverflowError (500).
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ) -> dict[str, Any]:
     nodes = state.database.graph.find_nodes(label, limit)
     return cast(dict[str, Any], {"nodes": nodes, "count": len(nodes)})
@@ -97,7 +99,8 @@ def get_edges(
     node_id: str,
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_READ))],
-    direction: str = "both",
+    # Any other value used to fall through to "both" without an error.
+    direction: Literal["out", "in", "both"] = "both",
     relationship: str | None = None,
 ) -> dict[str, Any]:
     edges = state.database.graph.get_edges(node_id, direction, relationship)
