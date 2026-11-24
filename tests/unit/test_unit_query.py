@@ -55,6 +55,17 @@ class TestParserTypes(unittest.TestCase):
         with self.assertRaises(QueryParseError):
             self.p.parse({"action": "select"})
 
+    def test_malformed_fields_raise_query_parse_error(self):
+        bodies: list[dict[str, Any]] = [
+            {"type": 1, "action": "get"},
+            {"type": "kv", "action": None},
+            {"type": "sql", "action": "select", "table": "t", "limit": "ten"},
+            {"type": "doc", "action": "find", "collection": "c", "filter": "x"},
+        ]
+        for body in bodies:
+            with self.subTest(body=body), self.assertRaises(QueryParseError):
+                self.p.parse(body)
+
 
 class TestParserSQL(unittest.TestCase):
     def setUp(self):
@@ -120,6 +131,18 @@ class TestParserDocumentAndKV(unittest.TestCase):
         self.assertEqual((q.kv.key, q.kv.value, q.kv.ttl), ("k", [1], 9))
         q2 = self.p.parse({"type": "kv", "action": "list", "prefix": "a:"})
         self.assertEqual(q2.kv.prefix, "a:")
+
+    def test_kv_ttl_accepts_fractional_seconds(self):
+        q = self.p.parse({"type": "kv", "action": "set", "key": "k", "value": 1, "ttl": 1.5})
+        self.assertEqual(q.kv.ttl, 1.5)
+
+    def test_kv_ttl_rejects_non_finite_and_non_positive(self):
+        for ttl in (float("nan"), float("inf"), float("-inf"), -1.5, -1, 0):
+            body = {"type": "kv", "action": "set", "key": "k", "value": 1, "ttl": ttl}
+            with self.subTest(ttl=ttl):
+                with self.assertRaises(QueryParseError) as ctx:
+                    self.p.parse(body)
+                self.assertIn("ttl", str(ctx.exception))
 
     def test_unknown_kv_action_is_refused(self):
         with self.assertRaises(QueryParseError):
