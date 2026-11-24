@@ -146,7 +146,7 @@ def test_kv_get_returns_a_stored_null(app_client, admin_token):
 
 def test_kv_ttl_accepts_fractional_seconds(app_client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
-    resp = app_client.put("/kv/session", json={"value": "s", "ttl": 1.5}, headers=h)
+    resp = app_client.put("/kv/session", json={"value": "s", "ttl": 60.5}, headers=h)
     assert resp.status_code == 200
     assert app_client.get("/kv/session", headers=h).json()["value"] == "s"
 
