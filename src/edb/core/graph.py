@@ -58,7 +58,11 @@ class GraphStore:
         nid = node_id or str(uuid.uuid4())
         props = properties or {}
         self._e.execute(
-            "INSERT OR REPLACE INTO _graph_nodes (node_id, label, properties) VALUES (?, ?, ?)",
+            # An upsert keeps the rowid; INSERT OR REPLACE gave an updated node a new
+            # one, moving it to the end of find_nodes() and breaking paging.
+            "INSERT INTO _graph_nodes (node_id, label, properties) VALUES (?, ?, ?) "
+            "ON CONFLICT(node_id) DO UPDATE SET label = excluded.label, "
+            "properties = excluded.properties",
             (nid, label, json.dumps(props)),
         )
         self._e.commit()
@@ -76,8 +80,9 @@ class GraphStore:
     def find_nodes(
         self, label: str | None = None, limit: int = 100, offset: int = 0
     ) -> list[dict[str, Any]]:
-        # ORDER BY rowid keeps insertion order, so consecutive pages neither
-        # overlap nor skip nodes.
+        # ORDER BY rowid is insertion order (add_node keeps the rowid on update),
+        # so consecutive pages neither overlap nor skip nodes unless a node is
+        # deleted between requests.
         if label:
             rows = self._e.fetchall(
                 "SELECT * FROM _graph_nodes WHERE label = ? ORDER BY rowid LIMIT ? OFFSET ?",
