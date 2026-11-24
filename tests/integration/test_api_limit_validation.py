@@ -25,11 +25,11 @@ def h(admin_token):
 
 @pytest.fixture
 def numbers(app_client, h):
-    """A table ``numbers`` holding ids 1, 2 and 3."""
+    """A table ``numbers`` holding ids 1 to 5."""
     columns = [{"name": "id", "col_type": "INTEGER", "primary_key": True}]
     resp = app_client.post("/sql/tables", json={"name": "numbers", "columns": columns}, headers=h)
     assert resp.status_code == 200
-    for i in (1, 2, 3):
+    for i in range(1, 6):
         app_client.post("/sql/tables/numbers/insert", json={"data": {"id": i}}, headers=h)
 
 
@@ -46,10 +46,9 @@ def test_table_rows_can_still_be_paged(app_client, h, numbers):
 
 
 def test_audit_log_can_still_be_paged(app_client, h, numbers):
-    newest = app_client.get("/admin/audit", params={"limit": 1}, headers=h).json()["logs"]
+    first_two = app_client.get("/admin/audit", params={"limit": 2}, headers=h).json()["logs"]
     second = app_client.get("/admin/audit", params={"limit": 1, "offset": 1}, headers=h).json()[
         "logs"
     ]
-    assert len(newest) == 1
-    assert len(second) == 1
-    assert second[0]["id"] < newest[0]["id"]
+    assert len(first_two) == 2
+    assert [log["id"] for log in second] == [first_two[1]["id"]]
