@@ -144,6 +144,22 @@ def test_kv_get_returns_a_stored_null(app_client, admin_token):
     assert app_client.get("/kv/missing", headers=h).status_code == 404
 
 
+def test_kv_ttl_accepts_fractional_seconds(app_client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    resp = app_client.put("/kv/session", json={"value": "s", "ttl": 1.5}, headers=h)
+    assert resp.status_code == 200
+    assert app_client.get("/kv/session", headers=h).json()["value"] == "s"
+
+
+def test_kv_ttl_rejects_zero_and_negative(app_client, admin_token):
+    # Before, these returned 200 but stored a key that was already expired.
+    h = {"Authorization": f"Bearer {admin_token}"}
+    for ttl in (0, -1):
+        resp = app_client.put("/kv/lost", json={"value": "v", "ttl": ttl}, headers=h)
+        assert resp.status_code == 422, ttl
+    assert app_client.get("/kv/lost", headers=h).status_code == 404
+
+
 def test_admin_stats(app_client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
     resp = app_client.get("/admin/stats", headers=h)
