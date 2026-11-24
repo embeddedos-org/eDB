@@ -33,7 +33,7 @@ class GraphStore:
     API (matches test expectations):
         add_node(label, properties={}, node_id=None) -> dict
         get_node(node_id) -> dict | None
-        find_nodes(label=None, limit=100) -> list[dict]
+        find_nodes(label=None, limit=100, offset=0) -> list[dict]
         delete_node(node_id) -> bool
         add_edge(src, dst, relationship, properties={}) -> dict
         get_edges(node_id, direction='out', relationship=None) -> list[dict]
@@ -73,13 +73,20 @@ class GraphStore:
         return {"id": row["node_id"], "label": row["label"],
                 "properties": json.loads(row["properties"])}
 
-    def find_nodes(self, label: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    def find_nodes(
+        self, label: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[dict[str, Any]]:
+        # ORDER BY rowid keeps insertion order, so consecutive pages neither
+        # overlap nor skip nodes.
         if label:
             rows = self._e.fetchall(
-                "SELECT * FROM _graph_nodes WHERE label = ? LIMIT ?", (label, limit)
+                "SELECT * FROM _graph_nodes WHERE label = ? ORDER BY rowid LIMIT ? OFFSET ?",
+                (label, limit, offset),
             )
         else:
-            rows = self._e.fetchall("SELECT * FROM _graph_nodes LIMIT ?", (limit,))
+            rows = self._e.fetchall(
+                "SELECT * FROM _graph_nodes ORDER BY rowid LIMIT ? OFFSET ?", (limit, offset)
+            )
         return [{"id": r["node_id"], "label": r["label"],
                  "properties": json.loads(r["properties"])} for r in rows]
 

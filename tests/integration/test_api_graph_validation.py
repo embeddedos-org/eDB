@@ -18,6 +18,20 @@ def test_find_nodes_rejects_a_limit_outside_1_to_1000(app_client, h, limit):
     assert resp.status_code == 422
 
 
+@pytest.mark.parametrize("offset", [-1, 2**63])
+def test_find_nodes_rejects_an_out_of_range_offset(app_client, h, offset):
+    resp = app_client.get("/graph/nodes", params={"offset": offset}, headers=h)
+    assert resp.status_code == 422
+
+
+def test_find_nodes_pages_with_offset(app_client, h):
+    for node_id in ("n1", "n2", "n3"):
+        app_client.post("/graph/nodes", json={"label": "N", "node_id": node_id}, headers=h)
+    resp = app_client.get("/graph/nodes", params={"limit": 2, "offset": 1}, headers=h)
+    assert resp.status_code == 200
+    assert [n["id"] for n in resp.json()["nodes"]] == ["n2", "n3"]
+
+
 def test_get_edges_rejects_an_unknown_direction(app_client, h):
     resp = app_client.get("/graph/nodes/a/edges", params={"direction": "outgoing"}, headers=h)
     assert resp.status_code == 422
