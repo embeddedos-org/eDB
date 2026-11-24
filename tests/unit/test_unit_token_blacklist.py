@@ -57,6 +57,42 @@ class TestRevokeAllForUser:
         assert count >= 1
 
 
+class TestIsRevokedForUser:
+    @staticmethod
+    def revoke_all(engine: StorageEngine, bl: TokenBlacklist, user_id: str) -> int:
+        """Call revoke_all_for_user() and return the second it was recorded in."""
+        bl.revoke_all_for_user(user_id)
+        row = engine.fetchone(
+            f'SELECT revoked_at FROM "{BLACKLIST_TABLE}" WHERE user_id = ?', (user_id,)
+        )
+        assert row is not None
+        return int(datetime.fromisoformat(row["revoked_at"]).timestamp())
+
+    def test_tokens_issued_before_the_cutoff_are_revoked(self):
+        engine = StorageEngine(":memory:")
+        bl = TokenBlacklist(engine)
+        cutoff = self.revoke_all(engine, bl, "u1")
+        assert bl.is_revoked_for_user("u1", cutoff - 1) is True
+
+    def test_tokens_issued_in_or_after_the_cutoff_second_are_kept(self):
+        engine = StorageEngine(":memory:")
+        bl = TokenBlacklist(engine)
+        cutoff = self.revoke_all(engine, bl, "u1")
+        assert bl.is_revoked_for_user("u1", cutoff) is False
+        assert bl.is_revoked_for_user("u1", cutoff + 1) is False
+
+    def test_only_the_named_user_is_affected(self):
+        engine = StorageEngine(":memory:")
+        bl = TokenBlacklist(engine)
+        cutoff = self.revoke_all(engine, bl, "u1")
+        assert bl.is_revoked_for_user("u2", cutoff - 1) is False
+
+    def test_revoking_one_token_is_not_a_cutoff(self):
+        bl = make_blacklist()
+        bl.revoke("jti-one", user_id="u1")
+        assert bl.is_revoked_for_user("u1", 0) is False
+
+
 class TestCleanupExpired:
     def test_cleanup_removes_only_expired(self):
         bl = make_blacklist()

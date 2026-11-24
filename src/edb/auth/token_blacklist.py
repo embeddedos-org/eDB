@@ -64,6 +64,22 @@ class TokenBlacklist:
         self._engine.commit()
         return int(cursor.rowcount)
 
+    def is_revoked_for_user(self, user_id: str, issued_at: int) -> bool:
+        """Check if a token issued at ``issued_at`` (its ``iat``, in whole seconds)
+        predates the user's latest ``revoke_all_for_user()`` call."""
+        row = self._engine.fetchone(
+            f"""SELECT MAX(revoked_at) AS cutoff FROM "{BLACKLIST_TABLE}"
+            WHERE user_id = ? AND token_jti GLOB 'user_revoke_*'""",
+            (user_id,),
+        )
+        if row is None or row["cutoff"] is None:
+            return False
+        # iat has whole-second precision, so a token issued in the same second as
+        # the revocation is kept: a login straight after a password change must
+        # work. That leaves a window of under a second for a token issued just
+        # before it.
+        return issued_at < int(datetime.fromisoformat(row["cutoff"]).timestamp())
+
     def cleanup_expired(self) -> int:
         """Remove expired entries from the blacklist."""
         now = datetime.now(UTC).isoformat()
