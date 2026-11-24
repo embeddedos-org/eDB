@@ -59,8 +59,9 @@ def find_nodes(
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_READ))],
     label: str | None = None,
-    # SQLite treats a negative LIMIT as "no limit", so limit=-1 returned every node.
-    limit: Annotated[int, Query(ge=1)] = 100,
+    # SQLite treats a negative LIMIT as "no limit", so limit=-1 returned every node,
+    # and a value past SQLite's 64-bit range raised OverflowError (500).
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ) -> dict[str, Any]:
     nodes = state.database.graph.find_nodes(label, limit)
     return cast(dict[str, Any], {"nodes": nodes, "count": len(nodes)})

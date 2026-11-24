@@ -12,8 +12,8 @@ def h(admin_token):
     return {"Authorization": f"Bearer {admin_token}"}
 
 
-@pytest.mark.parametrize("limit", [-1, 0])
-def test_find_nodes_rejects_a_limit_below_one(app_client, h, limit):
+@pytest.mark.parametrize("limit", [-1, 0, 1001, 2**63])
+def test_find_nodes_rejects_a_limit_outside_1_to_1000(app_client, h, limit):
     resp = app_client.get("/graph/nodes", params={"limit": limit}, headers=h)
     assert resp.status_code == 422
 
@@ -29,10 +29,17 @@ def test_traverse_rejects_a_depth_below_one(app_client, h, depth):
     assert resp.status_code == 422
 
 
-def test_valid_values_are_still_accepted(app_client, h):
-    assert app_client.get("/graph/nodes", params={"limit": 1}, headers=h).status_code == 200
-    for direction in ("out", "in", "both"):
+def test_valid_values_still_work(app_client, h):
+    for node_id in ("a", "b", "c"):
+        app_client.post("/graph/nodes", json={"label": "N", "node_id": node_id}, headers=h)
+    for src, dst in (("a", "b"), ("b", "c")):
+        edge = {"source_id": src, "target_id": dst, "relationship": "NEXT"}
+        app_client.post("/graph/edges", json=edge, headers=h)
+
+    assert app_client.get("/graph/nodes", params={"limit": 2}, headers=h).json()["count"] == 2
+    expected = {"out": [("a", "b")], "in": [], "both": [("a", "b")]}
+    for direction, pairs in expected.items():
         resp = app_client.get("/graph/nodes/a/edges", params={"direction": direction}, headers=h)
-        assert resp.status_code == 200, direction
+        assert [(e["source_id"], e["target_id"]) for e in resp.json()["edges"]] == pairs, direction
     resp = app_client.post("/graph/traverse", json={"start_id": "a", "depth": 2}, headers=h)
-    assert resp.status_code == 200
+    assert sorted(n["id"] for n in resp.json()["nodes"]) == ["a", "b", "c"]
