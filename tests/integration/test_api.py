@@ -152,12 +152,14 @@ def test_kv_ttl_accepts_fractional_seconds(app_client, admin_token):
 
 
 def test_kv_ttl_rejects_zero_and_negative(app_client, admin_token):
-    # Before, these returned 200 but stored a key that was already expired.
+    # Before, these returned 200 and overwrote the key with one that was
+    # already expired. A rejected write must leave the existing value alone.
     h = {"Authorization": f"Bearer {admin_token}"}
+    assert app_client.put("/kv/kept", json={"value": "old"}, headers=h).status_code == 200
     for ttl in (0, -1):
-        resp = app_client.put("/kv/lost", json={"value": "v", "ttl": ttl}, headers=h)
+        resp = app_client.put("/kv/kept", json={"value": "new", "ttl": ttl}, headers=h)
         assert resp.status_code == 422, ttl
-    assert app_client.get("/kv/lost", headers=h).status_code == 404
+    assert app_client.get("/kv/kept", headers=h).json()["value"] == "old"
 
 
 def test_admin_stats(app_client, admin_token):
