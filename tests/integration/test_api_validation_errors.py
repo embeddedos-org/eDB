@@ -25,17 +25,20 @@ def test_login_with_a_nan_username_returns_422(app_client):
 
 
 @pytest.mark.parametrize(
-    ("method", "path", "body"),
+    ("method", "path", "body", "shown_as"),
     [
-        ("PUT", "/kv/k", '{"value": "v", "ttl": NaN}'),
-        ("POST", "/docs/c/find", '{"limit": NaN}'),
-        ("POST", "/graph/traverse", '{"start_id": "a", "depth": Infinity}'),
+        ("PUT", "/kv/k", '{"value": "v", "ttl": NaN}', "nan"),
+        ("POST", "/docs/c/find", '{"limit": NaN}', "nan"),
+        ("POST", "/graph/traverse", '{"start_id": "a", "depth": Infinity}', "inf"),
+        ("POST", "/docs/c/find", '{"limit": -Infinity}', "-inf"),
     ],
 )
-def test_non_finite_value_in_a_rejected_field_returns_422(app_client, h, method, path, body):
+def test_non_finite_value_in_a_rejected_field_returns_422(
+    app_client, h, method, path, body, shown_as
+):
     resp = app_client.request(method, path, content=body, headers=h)
     assert resp.status_code == 422
-    assert resp.json()["detail"][0]["input"] in ("nan", "inf")
+    assert resp.json()["detail"][0]["input"] == shown_as
 
 
 def test_ordinary_validation_errors_are_unchanged(app_client, h):
