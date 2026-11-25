@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS _graph_edges (
 );
 CREATE INDEX IF NOT EXISTS idx_edge_src ON _graph_edges(src);
 CREATE INDEX IF NOT EXISTS idx_edge_dst ON _graph_edges(dst);
+CREATE INDEX IF NOT EXISTS idx_node_label ON _graph_nodes(label);
 """
 
 

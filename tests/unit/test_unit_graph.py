@@ -171,3 +171,38 @@ class TestGraphTraversal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGraphNodeLabelIndex(unittest.TestCase):
+    # eDB#218: _graph_nodes had no index on label, so GET /graph/nodes?label=
+    # scanned every node (EXPLAIN QUERY PLAN reported SCAN _graph_nodes).
+
+    def setUp(self):
+        self.g = GraphStore(StorageEngine(":memory:"))
+
+    def test_label_index_exists(self):
+        rows = self.g._e.fetchall(
+            "SELECT name FROM sqlite_master "
+            "WHERE type = 'index' AND name = 'idx_node_label'"
+        )
+        self.assertEqual([row["name"] for row in rows], ["idx_node_label"])
+
+    def test_labelled_query_can_use_the_label_index(self):
+        self.g.add_node("Person", node_id="a")
+        self.g.add_node("Place", node_id="b")
+        plan = self.g._e.fetchall(
+            "EXPLAIN QUERY PLAN SELECT * FROM _graph_nodes "
+            "INDEXED BY idx_node_label WHERE label = ? "
+            "ORDER BY rowid LIMIT ? OFFSET ?",
+            ("Person", 100, 0),
+        )
+        details = " ".join(row[3] for row in plan)
+        self.assertIn("USING INDEX idx_node_label", details)
+
+    def test_index_changes_no_results(self):
+        self.g.add_node("Person", node_id="a")
+        self.g.add_node("Person", node_id="b")
+        self.g.add_node("Place", node_id="c")
+        self.assertEqual(
+            [n["id"] for n in self.g.find_nodes("Person")], ["a", "b"]
+        )
