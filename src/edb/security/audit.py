@@ -16,6 +16,20 @@ from edb.core.engine import StorageEngine
 
 AUDIT_TABLE = "_edb_audit_log"
 
+# How entry_hash is computed; stored per entry so older logs still verify.
+# 1: "|"-joined text without username and ip_address (logs written before 2).
+# 2: a JSON array of every stored field, so none can be changed unnoticed.
+HASH_VERSION = 2
+_HASHED_FIELDS = (
+    "timestamp",
+    "event_type",
+    "user_id",
+    "username",
+    "action",
+    "details",
+    "ip_address",
+)
+
 
 class AuditLogger:
     """Append-only audit log with hash chain verification."""
@@ -41,9 +55,18 @@ class AuditLogger:
                 details TEXT,
                 ip_address TEXT,
                 prev_hash TEXT NOT NULL,
-                entry_hash TEXT NOT NULL
+                entry_hash TEXT NOT NULL,
+                hash_version INTEGER NOT NULL DEFAULT 1
             )
         """)
+        columns = {
+            row["name"] for row in self._engine.fetchall(f'PRAGMA table_info("{AUDIT_TABLE}")')
+        }
+        if "hash_version" not in columns:
+            # A log created before hash_version existed: its entries are version 1.
+            self._engine.execute(
+                f'ALTER TABLE "{AUDIT_TABLE}" ADD COLUMN hash_version INTEGER NOT NULL DEFAULT 1'
+            )
         self._engine.commit()
 
     def log(
@@ -60,15 +83,22 @@ class AuditLogger:
         with self._lock:
             timestamp = datetime.now(UTC).isoformat()
             prev_hash = self._get_last_hash()
-
-            entry_data = f"{timestamp}|{event_type}|{user_id}|{action}|{details_json}|{prev_hash}"
-            entry_hash = hashlib.sha256(entry_data.encode("utf-8")).hexdigest()
+            entry = {
+                "timestamp": timestamp,
+                "event_type": event_type,
+                "user_id": user_id,
+                "username": username,
+                "action": action,
+                "details": details_json,
+                "ip_address": ip_address,
+            }
+            entry_hash = self._hash(entry, prev_hash, HASH_VERSION)
 
             cursor = self._engine.execute(
                 f"""INSERT INTO "{AUDIT_TABLE}"
                 (timestamp, event_type, user_id, username, action,
-                 details, ip_address, prev_hash, entry_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 details, ip_address, prev_hash, entry_hash, hash_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     timestamp,
                     event_type,
@@ -79,6 +109,7 @@ class AuditLogger:
                     ip_address,
                     prev_hash,
                     entry_hash,
+                    HASH_VERSION,
                 ),
             )
             self._engine.commit()
@@ -122,20 +153,20 @@ class AuditLogger:
             return True, "Audit log is empty"
 
         prev_hash = "genesis"
+        prev_version = 1
         for row in rows:
-            details_str = row["details"]
-            entry_data = (
-                f"{row['timestamp']}|{row['event_type']}|{row['user_id']}|"
-                f"{row['action']}|{details_str}|{prev_hash}"
-            )
-            expected_hash = hashlib.sha256(entry_data.encode("utf-8")).hexdigest()
-
+            version = row["hash_version"]
+            # Versions only go up: an entry relabelled as version 1 after a
+            # version 2 one would otherwise skip the username/ip_address check.
+            if version not in (1, HASH_VERSION) or version < prev_version:
+                return False, f"Tampered entry detected at ID {row['id']}: hash_version {version}"
             if row["prev_hash"] != prev_hash:
                 return False, f"Chain broken at entry {row['id']}: prev_hash mismatch"
-            if row["entry_hash"] != expected_hash:
+            if row["entry_hash"] != self._hash(row, prev_hash, version):
                 return False, f"Tampered entry detected at ID {row['id']}"
 
             prev_hash = row["entry_hash"]
+            prev_version = version
 
         return True, f"Audit chain verified: {len(rows)} entries intact"
 
@@ -143,6 +174,18 @@ class AuditLogger:
         """Count total audit log entries."""
         row = self._engine.fetchone(f'SELECT COUNT(*) as cnt FROM "{AUDIT_TABLE}"')
         return row["cnt"] if row else 0
+
+    @staticmethod
+    def _hash(entry: Any, prev_hash: str, version: int) -> str:
+        """Hash an entry (a dict or a row) the way its hash_version says."""
+        if version == 1:
+            data = (
+                f"{entry['timestamp']}|{entry['event_type']}|{entry['user_id']}|"
+                f"{entry['action']}|{entry['details']}|{prev_hash}"
+            )
+        else:
+            data = json.dumps([entry[field] for field in _HASHED_FIELDS] + [prev_hash])
+        return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
     def _get_last_hash(self) -> str:
         row = self._engine.fetchone(

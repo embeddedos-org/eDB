@@ -8,6 +8,7 @@ both edited payloads and broken links, and retrieval filters and
 pagination behave as the API layer expects.
 """
 
+import hashlib
 import threading
 
 import pytest
@@ -151,6 +152,75 @@ class TestVerifyChain:
         engine.commit()
         ok, _ = audit.verify_chain()
         assert ok is False
+
+    @pytest.mark.parametrize(
+        ("column", "value"), [("username", "admin"), ("ip_address", "6.6.6.6")]
+    )
+    def test_tampered_username_or_ip_address_detected(self, audit, engine, column, value):
+        _log_three(audit)
+        engine.execute(f'UPDATE "{AUDIT_TABLE}" SET {column} = ? WHERE id = 1', (value,))
+        engine.commit()
+        ok, message = audit.verify_chain()
+        assert ok is False
+        assert "Tampered entry detected at ID 1" in message
+
+    def test_entry_relabelled_as_version_1_detected(self, audit, engine):
+        # Version 1 does not hash username, so an entry relabelled as version 1,
+        # with its hash recomputed that way, would hide a changed username.
+        _log_three(audit)
+        row = engine.fetchone(f'SELECT * FROM "{AUDIT_TABLE}" WHERE id = 3')
+        engine.execute(
+            f'UPDATE "{AUDIT_TABLE}" SET username = ?, hash_version = 1, entry_hash = ? '
+            "WHERE id = 3",
+            ("someone_else", _version_1_hash(row, row["prev_hash"])),
+        )
+        engine.commit()
+        ok, message = audit.verify_chain()
+        assert ok is False
+        assert "hash_version 1" in message
+
+
+def _version_1_hash(row, prev_hash: str) -> str:
+    data = (
+        f"{row['timestamp']}|{row['event_type']}|{row['user_id']}|"
+        f"{row['action']}|{row['details']}|{prev_hash}"
+    )
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+class TestLogWrittenBeforeHashVersion:
+    def test_old_log_still_verifies_and_new_entries_chain_onto_it(self, engine):
+        # The table as it was before hash_version, with two version 1 entries.
+        engine.execute(f"""
+            CREATE TABLE "{AUDIT_TABLE}" (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL, event_type TEXT NOT NULL,
+                user_id TEXT, username TEXT, action TEXT NOT NULL,
+                details TEXT, ip_address TEXT,
+                prev_hash TEXT NOT NULL, entry_hash TEXT NOT NULL
+            )
+        """)
+        prev_hash = "genesis"
+        for action in ("login", "logout"):
+            row = {"timestamp": "2026-01-01T00:00:00+00:00", "event_type": "auth",
+                   "user_id": "u1", "action": action, "details": None}
+            entry_hash = _version_1_hash(row, prev_hash)
+            engine.execute(
+                f'INSERT INTO "{AUDIT_TABLE}" (timestamp, event_type, user_id, username, '
+                "action, details, ip_address, prev_hash, entry_hash) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (row["timestamp"], "auth", "u1", "alice", action, None, None,
+                 prev_hash, entry_hash),
+            )
+            prev_hash = entry_hash
+        engine.commit()
+
+        audit = AuditLogger(engine)
+        assert audit.verify_chain() == (True, "Audit chain verified: 2 entries intact")
+        audit.log("auth", "login", user_id="u1", username="alice")
+        assert audit.verify_chain() == (True, "Audit chain verified: 3 entries intact")
+        versions = engine.fetchall(f'SELECT hash_version FROM "{AUDIT_TABLE}" ORDER BY id')
+        assert [row["hash_version"] for row in versions] == [1, 1, 2]
 
 
 class TestReopen:

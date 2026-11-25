@@ -43,6 +43,11 @@
   `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
   without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
   accepted; any other default is rejected with `ValueError` before the table is created.
+- `AuditLogger.verify_chain()` (and `GET /admin/audit/verify`) now detects a changed `username` or
+  `ip_address` in an audit entry. Both were stored but left out of the entry's hash, so an edited
+  entry was reported as intact. New entries are hashed over every stored field (hash version 2, kept
+  in a new `hash_version` column); entries written before keep the old hash and still verify, and an
+  existing log gets the column when it is opened.
 - `edb backup` now refuses a `--db` path that does not exist: it prints `No database at <path>` and
   exits 1. It used to open the path with `Database()`, which created a new empty database there, back
   that up to `--dest` and report `Backup created` with exit status 0.
