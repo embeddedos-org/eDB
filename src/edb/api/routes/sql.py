@@ -14,6 +14,7 @@ from edb.api.dependencies import (
     require_permission,
 )
 from edb.auth.models import Permission
+from edb.api.validation import FiniteJSON
 
 router = APIRouter()
 
@@ -29,11 +30,11 @@ class CreateTableRequest(BaseModel):
 
 
 class InsertRequest(BaseModel):
-    data: dict[str, Any]
+    data: dict[str, FiniteJSON]
 
 
 class UpdateRequest(BaseModel):
-    data: dict[str, Any]
+    data: dict[str, FiniteJSON]
     where: dict[str, Any]
 
 
