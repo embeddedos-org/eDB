@@ -16,6 +16,9 @@
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
   now a key range (`key >= prefix AND key < next`), which also uses the key index.
+- `PUT /kv/{key}`, `POST /docs/{collection}` and `PUT /docs/{collection}/{doc_id}` reject `NaN`,
+  `Infinity` and `-Infinity` anywhere in the value or document with 422. Python's JSON parser accepts
+  them although they are not valid JSON, so they were stored as invalid JSON and read back as `null`.
 - `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
   so the field was stored as the word `None`: a search for `none` matched the document and its result
   reported the field as `"None"` instead of `""`.
