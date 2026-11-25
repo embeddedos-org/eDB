@@ -99,13 +99,14 @@ def refresh_token(
         payload is None
         or payload.get("type") != "refresh"
         or state.token_blacklist.is_revoked(payload.get("jti", ""))
+        or state.token_blacklist.is_revoked_for_user(payload.get("sub", ""), payload.get("iat", 0))
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
         )
 
-    user = state.user_manager.get_by_id(payload["sub"])
+    user = state.user_manager.get_by_id(payload.get("sub", ""))
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -161,7 +162,10 @@ def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Wrong current password",
         )
-    return {"message": "Password changed successfully"}
+    # Sign out every existing session, including this one: whoever changes a
+    # password because it leaked must also cut off anyone already holding a token.
+    state.token_blacklist.revoke_all_for_user(user["sub"])
+    return {"message": "Password changed; all sessions are signed out, log in again"}
 
 
 @router.post("/logout")

@@ -13,6 +13,12 @@
   when `--db`, `--host` or `--port` is not given, and a flag that is given wins. Before, `--host` and
   `--port` always fell back to `127.0.0.1:8000`, a `.env` database path was replaced by `edb_data.db`,
   and an exported `EDB_DB_PATH` silently overrode `--db` while the startup banner showed the `--db` path.
+- `POST /auth/password` signs out every session of the user: access and refresh tokens issued before
+  the change are rejected, including the one used to make it, and the response says to log in again.
+  Before, tokens issued with the old password stayed valid until they expired, because the marker
+  `TokenBlacklist.revoke_all_for_user()` records was never checked. Token times are whole seconds, so
+  a token issued in the same second as the change is kept for the rest of its lifetime: by default up
+  to 60 minutes for an access token and 7 days for a refresh token.
 - `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
