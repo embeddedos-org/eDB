@@ -16,6 +16,12 @@
   It matched its patterns against the lowercased text, so `find users where name=Ada` searched for
   `ada` and found nothing, and `get key Session-Token` looked up `session-token`. Keywords still
   match in any case.
+- eBot's rule-based translator (`POST /ebot/query`) no longer degrades to quadratic matching on
+  queries containing a long run of spaces (polynomial ReDoS). The `find`, `get key`, `insert` and
+  `delete` patterns paired a lazy `(.+?)` with an adjacent `\s*`/`\s+`, so the engine retried every
+  split of the run: a 5,000-space `find ... where ... =` query took ~81s of CPU, and `delete` ~160s.
+  The patterns are now unambiguous and the same query is handled in well under a millisecond.
+  Translation results are unchanged.
 
 ### Changed
 

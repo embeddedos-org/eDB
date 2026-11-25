@@ -17,6 +17,33 @@ LIST_TABLES_SQL = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
 )
 
+# Quote characters a value may be wrapped in ("get key 'a b'").
+_VALUE_QUOTES = "'\""
+
+
+def _extract_value(raw: str) -> str | None:
+    """Trim a captured trailing value: surrounding whitespace, then one quote.
+
+    The patterns below used to end in ``['\"]?(.+?)['\"]?\\s*$``. That tail is
+    ambiguous: the lazy ``.+?`` also matches whitespace, so it overlaps the
+    neighbouring ``\\s*``/``\\s+``. On input such as ``find a where b=`` plus a
+    long run of spaces the engine retried every split of that run, which is
+    quadratic in its length (CodeQL ``py/polynomial-redos``).
+
+    The patterns now capture the rest of the line with a single unambiguous
+    ``(.*)$`` group and the trimming happens here, in linear time. ``None``
+    means "no usable value", and the caller falls through to the next rule
+    exactly as a failed regex match used to.
+    """
+    value = raw.strip()
+    # ``len(value) > 1`` mirrors the old ``.+?``, which always kept at least
+    # one character and so never consumed a lone quote as a delimiter.
+    if len(value) > 1 and value[0] in _VALUE_QUOTES:
+        value = value[1:]
+    if len(value) > 1 and value[-1] in _VALUE_QUOTES:
+        value = value[:-1]
+    return value or None
+
 
 class NLQueryTranslator:
     """Translates natural language queries into eDB query DSL."""
@@ -86,43 +113,51 @@ class NLQueryTranslator:
         # "find <collection> where <key>=<value>" → DOCUMENT FIND
         # (checked before the generic SELECT arm below, which would
         # otherwise swallow "find <collection>" and drop the filter)
+        # The value is captured in one greedy, unambiguous `(.*)$` group and
+        # trimmed by _extract_value(); `.` still excludes newlines, so a value
+        # may not span lines, as before.
         match = re.match(
-            r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=\s*['\"]?(.+?)['\"]?\s*$",
+            r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=(.*)$",
             text,
             re.IGNORECASE,
         )
         if match:
-            collection = match.group(1)
-            key = match.group(2)
-            value = match.group(3)
-            return TranslationResult(
-                original_text=text,
-                translated_query={
-                    "type": "document",
-                    "action": "find",
-                    "collection": collection,
-                    "filter": {key: value},
-                },
-                confidence=0.6,
-                explanation=f"Find in '{collection}' where {key}={value}",
-            )
+            value = _extract_value(match.group(3))
+            if value is not None:
+                collection = match.group(1)
+                key = match.group(2)
+                return TranslationResult(
+                    original_text=text,
+                    translated_query={
+                        "type": "document",
+                        "action": "find",
+                        "collection": collection,
+                        "filter": {key: value},
+                    },
+                    confidence=0.6,
+                    explanation=f"Find in '{collection}' where {key}={value}",
+                )
 
         # "get key <key>" → KV GET
         # (checked before the generic SELECT arm; the "key" keyword is
         # required so plain "get <table>" keeps its SELECT meaning)
-        match = re.match(r"get\s+key\s+['\"]?(.+?)['\"]?\s*$", text, re.IGNORECASE)
+        # A single mandatory `\s` separates "key" from the captured remainder,
+        # so no two whitespace quantifiers sit next to each other; any extra
+        # leading whitespace is trimmed by _extract_value().
+        match = re.match(r"get\s+key\s(.*)$", text, re.IGNORECASE)
         if match:
-            key = match.group(1)
-            return TranslationResult(
-                original_text=text,
-                translated_query={
-                    "type": "kv",
-                    "action": "get",
-                    "key": key,
-                },
-                confidence=0.5,
-                explanation=f"GET key '{key}'",
-            )
+            key = _extract_value(match.group(1))
+            if key is not None:
+                return TranslationResult(
+                    original_text=text,
+                    translated_query={
+                        "type": "kv",
+                        "action": "get",
+                        "key": key,
+                    },
+                    confidence=0.5,
+                    explanation=f"GET key '{key}'",
+                )
 
         # "show all/list <table>" → SELECT
         match = re.match(
@@ -159,8 +194,13 @@ class NLQueryTranslator:
             )
 
         # "insert/add <data> into <table>" → INSERT
+        # `(\S(?:.*?\S)?)` pins the data to start and end on a non-space, so it
+        # can no longer overlap the surrounding `\s+` separators the way the old
+        # `(.+?)` did. The lazy `.*?` is bounded by a `\S` on both sides, so the
+        # split point is unambiguous. A whitespace-only capture was the only
+        # thing this excludes, and _parse_simple_data() rejected that anyway.
         match = re.match(
-            r"(?:insert|add|create)\s+(.+?)\s+(?:into|to|in)\s+(\w+)",
+            r"(?:insert|add|create)\s+(\S(?:.*?\S)?)\s+(?:into|to|in)\s+(\w+)",
             text,
             re.IGNORECASE,
         )
@@ -182,26 +222,28 @@ class NLQueryTranslator:
                 )
 
         # "delete from <table> where <key>=<value>" → DELETE
+        # Same unambiguous `(.*)$` + _extract_value() shape as the find arm.
         match = re.match(
-            r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=\s*['\"]?(.+?)['\"]?\s*$",
+            r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=(.*)$",
             text,
             re.IGNORECASE,
         )
         if match:
-            table = match.group(1)
-            key = match.group(2)
-            value = match.group(3)
-            return TranslationResult(
-                original_text=text,
-                translated_query={
-                    "type": "sql",
-                    "action": "delete",
-                    "table": table,
-                    "where": {key: value},
-                },
-                confidence=0.6,
-                explanation=f"DELETE from '{table}' where {key}={value}",
-            )
+            value = _extract_value(match.group(3))
+            if value is not None:
+                table = match.group(1)
+                key = match.group(2)
+                return TranslationResult(
+                    original_text=text,
+                    translated_query={
+                        "type": "sql",
+                        "action": "delete",
+                        "table": table,
+                        "where": {key: value},
+                    },
+                    confidence=0.6,
+                    explanation=f"DELETE from '{table}' where {key}={value}",
+                )
 
         # "list tables/collections/keys" → metadata queries
         # (already handled at the top of the method; this is unreachable)

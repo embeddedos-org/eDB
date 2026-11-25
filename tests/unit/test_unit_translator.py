@@ -131,6 +131,119 @@ class TestNLQueryTranslator:
         assert r.error is not None
         assert "show all users" in r.error
 
+    # ------------------------------------------------------------------
+    # ReDoS regression (CodeQL py/polynomial-redos, 4 high alerts).
+    #
+    # The four patterns below used to pair a lazy `(.+?)` with an adjacent
+    # `\s*`/`\s+`, so a long run of spaces made matching quadratic. The
+    # patterns are now unambiguous; these tests pin both that each entry
+    # point still translates correctly (including runs of internal
+    # whitespace and preserved case) and that the blow-up is gone.
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            # find: keywords in any case, names/fields/values keep theirs,
+            # and runs of internal whitespace survive inside the value.
+            (
+                "find Users where Name=Ada   Lovelace",
+                {
+                    "type": "document",
+                    "action": "find",
+                    "collection": "Users",
+                    "filter": {"Name": "Ada   Lovelace"},
+                },
+            ),
+            (
+                "FIND IN Orders WHERE Status='In   Transit'",
+                {
+                    "type": "document",
+                    "action": "find",
+                    "collection": "Orders",
+                    "filter": {"Status": "In   Transit"},
+                },
+            ),
+            # get key: extra spaces after the keyword are separators, but
+            # spaces inside the key are part of the key.
+            (
+                "get key   Session   Token",
+                {"type": "kv", "action": "get", "key": "Session   Token"},
+            ),
+            (
+                'GET KEY "My   Key"',
+                {"type": "kv", "action": "get", "key": "My   Key"},
+            ),
+            # delete: same value handling as find.
+            (
+                "Delete from Users where Name='Ada   Lovelace'",
+                {
+                    "type": "sql",
+                    "action": "delete",
+                    "table": "Users",
+                    "where": {"Name": "Ada   Lovelace"},
+                },
+            ),
+        ],
+    )
+    def test_redos_fix_keeps_translation(self, query, expected):
+        r = self.t.translate(query)
+        assert r.error is None
+        assert r.translated_query == expected
+
+    def test_redos_fix_keeps_insert_with_internal_whitespace(self):
+        # The insert data is captured by its own pattern; runs of spaces
+        # between the key=value pairs must still parse.
+        r = self.t.translate("ADD Name=Ada,   Age=36   INTO   Users")
+        assert r.error is None
+        assert r.translated_query["type"] == "sql"
+        assert r.translated_query["action"] == "insert"
+        assert r.translated_query["table"] == "Users"
+        assert r.translated_query["data"] == {"Name": "Ada", "Age": "36"}
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            "find 0 where 0=",  # translator.py find arm
+            "get key ",  # translator.py kv-get arm
+            "add ",  # translator.py insert arm
+            "delete 0 where 0=",  # translator.py delete arm
+        ],
+    )
+    def test_redos_adversarial_input_is_linear(self, prefix):
+        # The exact prefixes CodeQL reported, plus a long run of spaces. The
+        # trailing "x\ny" earns its keep twice: it survives translate()'s
+        # .strip(), so the space run really reaches the regexes, and the
+        # embedded newline blocks the value capture ("." never matches a
+        # newline) so the overall match fails -- a failing match is what made
+        # the old patterns retry every split of the space run.
+        #
+        # Timed rather than asserted on a wall clock budget alone: the old
+        # patterns were quadratic, so 8x the input cost ~64x the time. A
+        # generous 8x allowance still fails loudly on a quadratic regression
+        # while staying stable on slow/loaded CI runners.
+        import time
+
+        def elapsed(n):
+            text = prefix + " " * n + "x\ny"
+            best = float("inf")
+            for _ in range(3):
+                t0 = time.perf_counter()
+                self.t.translate(text)
+                best = min(best, time.perf_counter() - t0)
+            return best
+
+        small = elapsed(2_000)
+        large = elapsed(16_000)
+
+        # Absolute ceiling: the old code needed many seconds here.
+        assert large < 1.0, f"{prefix!r} took {large:.3f}s on 16k spaces"
+        # Growth check: linear-ish, nowhere near the ~64x of a quadratic scan.
+        floor = 1e-4  # ignore timer noise on very fast runs
+        assert large <= max(small, floor) * 8, (
+            f"{prefix!r} scaled {large / max(small, floor):.1f}x for 8x input"
+        )
+
     def test_kwargs_stored(self):
         t = NLQueryTranslator(provider="rule_based", foo="bar")
         assert t._kwargs == {"foo": "bar"}
