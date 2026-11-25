@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- `GET /graph/nodes` and `GraphStore.find_nodes()` take an `offset`, so nodes past the 1000-node
+  `limit` can be read. Nodes are returned in the order they were added.
+
 ### Fixed
 
 - `edb serve` reads `EDB_DB_PATH`, `EDB_API_HOST` and `EDB_API_PORT` from the environment and `.env`
@@ -22,6 +27,9 @@
 - `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
   so the field was stored as the word `None`: a search for `none` matched the document and its result
   reported the field as `"None"` instead of `""`.
+- `GraphStore.add_node()` for an existing `node_id` updates the node in place. It used
+  `INSERT OR REPLACE`, which gave the node a new rowid and moved it to the end of `find_nodes()`, so a
+  client paging through it could skip one node and see another twice.
 - `RelationalStore.create_table()` (and `POST /sql/tables`, the `sql create_table` query) now writes
   `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
   without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are

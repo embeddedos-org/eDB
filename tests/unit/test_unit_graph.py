@@ -42,6 +42,25 @@ class TestGraphNodes(unittest.TestCase):
         self.g.add_node("Place", node_id="b")
         self.assertEqual(len(self.g.find_nodes()), 2)
 
+    def test_find_nodes_pages_in_insertion_order(self):
+        for node_id in ("n1", "n2", "n3", "n4", "n5"):
+            self.g.add_node("Person", node_id=node_id)
+        pages = [self.g.find_nodes("Person", limit=2, offset=o) for o in (0, 2, 4)]
+        ids = [[n["id"] for n in page] for page in pages]
+        self.assertEqual(ids, [["n1", "n2"], ["n3", "n4"], ["n5"]])
+        pages = [self.g.find_nodes(limit=2, offset=o) for o in (0, 2, 4)]
+        ids = [[n["id"] for n in page] for page in pages]
+        self.assertEqual(ids, [["n1", "n2"], ["n3", "n4"], ["n5"]])
+
+    def test_updating_a_node_keeps_its_place_in_find_nodes(self):
+        for node_id in ("n1", "n2", "n3"):
+            self.g.add_node("Person", node_id=node_id)
+        self.g.add_node("Admin", {"age": 30}, node_id="n1")
+        self.assertEqual([n["id"] for n in self.g.find_nodes()], ["n1", "n2", "n3"])
+        self.assertEqual(
+            self.g.get_node("n1"), {"id": "n1", "label": "Admin", "properties": {"age": 30}}
+        )
+
     def test_delete_node_removes_incident_edges(self):
         self.g.add_node("Person", node_id="a")
         self.g.add_node("Person", node_id="b")

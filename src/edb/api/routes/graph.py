@@ -62,8 +62,10 @@ def find_nodes(
     # SQLite treats a negative LIMIT as "no limit", so limit=-1 returned every node,
     # and a value past SQLite's 64-bit range raised OverflowError (500).
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    # With limit capped at 1000, offset is how a client pages through a larger graph.
+    offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
 ) -> dict[str, Any]:
-    nodes = state.database.graph.find_nodes(label, limit)
+    nodes = state.database.graph.find_nodes(label, limit, offset)
     return cast(dict[str, Any], {"nodes": nodes, "count": len(nodes)})
 
 
