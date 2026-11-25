@@ -12,7 +12,8 @@
   the change are rejected, including the one used to make it, and the response says to log in again.
   Before, tokens issued with the old password stayed valid until they expired, because the marker
   `TokenBlacklist.revoke_all_for_user()` records was never checked. Token times are whole seconds, so
-  a token issued in the same second as the change is kept.
+  a token issued in the same second as the change is kept for the rest of its lifetime: by default up
+  to 60 minutes for an access token and 7 days for a refresh token.
 - `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
