@@ -27,9 +27,11 @@ class StorageEngine:
         self._generation = 0
         # sqlite3.connect(":memory:") gives every connection its own empty
         # database, so ":memory:" is opened as a named in-memory database
-        # (SQLite's memdb VFS) that all of this engine's connections share, with
-        # the same per-connection transactions and locking as a file. It exists
-        # while at least one connection is open; _keeper holds one until close().
+        # (SQLite's memdb VFS, SQLite 3.36+) that all of this engine's connections
+        # share; each thread keeps its own connection and transactions. Unlike a
+        # file, memdb has no WAL: while one connection has a write transaction
+        # open, the others wait for it (up to the busy timeout), even to read.
+        # The database exists while a connection is open; _keeper holds one until close().
         self._uri = f"file:/edb-{uuid.uuid4().hex}?vfs=memdb" if path == ":memory:" else None
         self._keeper: sqlite3.Connection | None = None
         # Ensure the file exists
@@ -39,13 +41,24 @@ class StorageEngine:
         self._get_conn()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(
-            self._uri or self._path,
-            uri=self._uri is not None,
-            check_same_thread=False,
-            isolation_level=None,
-            factory=_Connection,
-        )
+        try:
+            conn = sqlite3.connect(
+                self._uri or self._path,
+                uri=self._uri is not None,
+                check_same_thread=False,
+                isolation_level=None,
+                factory=_Connection,
+                # Seconds a connection waits for another one's lock before
+                # "database is locked"; Python's default, stated here.
+                timeout=5.0,
+            )
+        except sqlite3.OperationalError as e:
+            if self._uri is not None and "no such vfs" in str(e):
+                raise RuntimeError(
+                    'A ":memory:" database needs SQLite 3.36 or newer with the memdb '
+                    f"VFS; this Python uses SQLite {sqlite3.sqlite_version}"
+                ) from e
+            raise
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
@@ -93,7 +106,8 @@ class StorageEngine:
         Call it once no other thread is using the engine: a thread in the middle
         of a call gets an error, and its open transaction is rolled back. The
         engine stays usable afterwards; the next call in any thread opens a new
-        connection. For ":memory:" that is a new, empty database.
+        connection. For ":memory:" that is a new, empty database with no tables,
+        so a Database built on it must be created again rather than reused.
         """
         with self._conns_lock:
             for conn in list(self._conns):

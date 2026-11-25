@@ -193,6 +193,45 @@ def test_memory_database_runs_transactions_from_many_threads():
         db.close()
 
 
+def test_memory_reader_waits_for_an_open_write_transaction():
+    # memdb has no WAL, so unlike a file database a reader waits for the writer.
+    db = Database(":memory:")
+    db.kv.set("a", 1)
+    result = {}
+    about_to_read = threading.Event()
+
+    def read():
+        about_to_read.set()
+        result["value"] = db.kv.get("a")
+
+    reader = threading.Thread(target=read)
+    try:
+        with db.transaction():
+            db.kv.set("b", 2)
+            reader.start()
+            about_to_read.wait()
+            reader.join(timeout=0.2)
+            assert reader.is_alive()
+        reader.join()
+        assert result["value"] == 1
+    finally:
+        db.close()
+
+
+def test_memory_engine_without_memdb_raises_a_clear_error(monkeypatch):
+    def no_memdb(*args, **kwargs):
+        raise sqlite3.OperationalError("no such vfs: memdb")
+
+    monkeypatch.setattr(sqlite3, "connect", no_memdb)
+    with pytest.raises(RuntimeError, match=r"SQLite 3\.36 or newer"):
+        StorageEngine(":memory:")
+
+
+def test_other_connection_errors_are_not_rewritten(tmp_path):
+    with pytest.raises(sqlite3.OperationalError):
+        StorageEngine(str(tmp_path))  # a directory cannot be opened as a database
+
+
 def test_close_closes_connections_opened_by_other_threads(file_engine):
     conns = [_in_thread(lambda: file_engine.conn) for _ in range(3)]
     file_engine.close()
