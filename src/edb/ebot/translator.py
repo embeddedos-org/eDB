@@ -41,11 +41,44 @@ _VALUE_QUOTES = "'\""
 _FIND_HEAD = re.compile(r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=", re.IGNORECASE)
 _GET_KEY_HEAD = re.compile(r"get\s+key\s", re.IGNORECASE)
 _INSERT_HEAD = re.compile(r"(?:insert|add|create)\s+", re.IGNORECASE)
-# Applied with .match() at a known offset, never .search(): a pattern that
-# starts with `\s+` must not be allowed to slide along a run of spaces, or it
-# re-scans the rest of the run from every offset inside it -- quadratic again.
-_INSERT_SEP = re.compile(r"\s+(?:into|to|in)\s+(\w+)", re.IGNORECASE)
+
+# The insert separator, `\s+(?:into|to|in)\s+(\w+)`, is spelled out in
+# _insert_table() instead of written as one pattern. Each piece below is a
+# single quantifier matched at a known offset, so there is never a quantifier
+# beside another one to divide a run of characters with, and a lone greedy run
+# never backtracks.
+_WS_RUN = re.compile(r"\s+")
+_WORD_RUN = re.compile(r"\w+")
 _NON_SPACE_RUN = re.compile(r"\S+")
+_INSERT_KEYWORDS = ("into", "to", "in")
+
+
+def _insert_table(text: str, pos: int) -> str | None:
+    r"""Match ``\s+(?:into|to|in)\s+(\w+)`` at *pos*; return the table name.
+
+    Anchored, like the original was once the lazy data group had committed to
+    a split. The keywords are tried longest-first, as the alternation did.
+
+    Only the greedy reading of each ``\s+`` can lead anywhere: every keyword
+    starts with a non-space, so a shorter whitespace run could never be
+    followed by one. That is why no backtracking is needed here, and why this
+    is linear where a single combined pattern was not.
+    """
+    gap = _WS_RUN.match(text, pos)
+    if gap is None:
+        return None
+    keyword_start = gap.end()
+    head = text[keyword_start : keyword_start + 4].lower()
+    for keyword in _INSERT_KEYWORDS:
+        if not head.startswith(keyword):
+            continue
+        spacing = _WS_RUN.match(text, keyword_start + len(keyword))
+        if spacing is None:
+            continue
+        table = _WORD_RUN.match(text, spacing.end())
+        if table is not None:
+            return table.group(0)
+    return None
 _DELETE_HEAD = re.compile(
     r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=", re.IGNORECASE
 )
@@ -235,14 +268,13 @@ class NLQueryTranslator:
                 # data made the old rule fail outright.
                 if "\n" in data_str:
                     break
-                sep = _INSERT_SEP.match(text, token.end())
-                if sep is None:
+                table = _insert_table(text, token.end())
+                if table is None:
                     continue
                 # The regex committed to this first split, so an unparseable
                 # data string falls through to the next rule, as it did before.
                 data = self._parse_simple_data(data_str)
                 if data:
-                    table = sep.group(1)
                     return TranslationResult(
                         original_text=text,
                         translated_query={
