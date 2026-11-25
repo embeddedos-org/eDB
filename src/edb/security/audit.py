@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import threading
 from datetime import UTC, datetime
 from typing import Any
@@ -64,9 +65,14 @@ class AuditLogger:
         }
         if "hash_version" not in columns:
             # A log created before hash_version existed: its entries are version 1.
-            self._engine.execute(
-                f'ALTER TABLE "{AUDIT_TABLE}" ADD COLUMN hash_version INTEGER NOT NULL DEFAULT 1'
-            )
+            try:
+                self._engine.execute(
+                    f'ALTER TABLE "{AUDIT_TABLE}" ADD COLUMN hash_version INTEGER NOT NULL DEFAULT 1'
+                )
+            except sqlite3.OperationalError as e:
+                # Another process opening the same log added it in the meantime.
+                if "duplicate column name" not in str(e):
+                    raise
         self._engine.commit()
 
     def log(
@@ -153,12 +159,9 @@ class AuditLogger:
             return True, "Audit log is empty"
 
         prev_hash = "genesis"
-        prev_version = 1
         for row in rows:
             version = row["hash_version"]
-            # Versions only go up: an entry relabelled as version 1 after a
-            # version 2 one would otherwise skip the username/ip_address check.
-            if version not in (1, HASH_VERSION) or version < prev_version:
+            if version not in (1, HASH_VERSION):
                 return False, f"Tampered entry detected at ID {row['id']}: hash_version {version}"
             if row["prev_hash"] != prev_hash:
                 return False, f"Chain broken at entry {row['id']}: prev_hash mismatch"
@@ -166,7 +169,6 @@ class AuditLogger:
                 return False, f"Tampered entry detected at ID {row['id']}"
 
             prev_hash = row["entry_hash"]
-            prev_version = version
 
         return True, f"Audit chain verified: {len(rows)} entries intact"
 
@@ -184,7 +186,13 @@ class AuditLogger:
                 f"{entry['action']}|{entry['details']}|{prev_hash}"
             )
         else:
-            data = json.dumps([entry[field] for field in _HASHED_FIELDS] + [prev_hash])
+            # log() never stores a BLOB; one written into a hashed column is
+            # hashed as {"bytes": hex}, so it is reported as tampered instead of
+            # making json.dumps() raise.
+            data = json.dumps(
+                [entry[field] for field in _HASHED_FIELDS] + [prev_hash],
+                default=lambda value: {"bytes": value.hex()},
+            )
         return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
     def _get_last_hash(self) -> str:

@@ -9,6 +9,7 @@ pagination behave as the API layer expects.
 """
 
 import hashlib
+import sqlite3
 import threading
 
 import pytest
@@ -164,20 +165,33 @@ class TestVerifyChain:
         assert ok is False
         assert "Tampered entry detected at ID 1" in message
 
-    def test_entry_relabelled_as_version_1_detected(self, audit, engine):
-        # Version 1 does not hash username, so an entry relabelled as version 1,
-        # with its hash recomputed that way, would hide a changed username.
+    def test_unknown_hash_version_detected(self, audit, engine):
         _log_three(audit)
-        row = engine.fetchone(f'SELECT * FROM "{AUDIT_TABLE}" WHERE id = 3')
+        engine.execute(f'UPDATE "{AUDIT_TABLE}" SET hash_version = 3 WHERE id = 2')
+        engine.commit()
+        assert audit.verify_chain() == (False, "Tampered entry detected at ID 2: hash_version 3")
+
+    def test_blob_in_hashed_column_reported_as_tampered(self, audit, engine):
+        _log_three(audit)
+        engine.execute(f"UPDATE \"{AUDIT_TABLE}\" SET username = X'00' WHERE id = 1")
+        engine.commit()
+        assert audit.verify_chain() == (False, "Tampered entry detected at ID 1")
+
+    def test_old_format_entry_after_new_ones_still_verifies(self, audit, engine):
+        # An older eDB sharing the database still writes version 1 entries.
+        _log_three(audit)
+        last = engine.fetchone(f'SELECT entry_hash FROM "{AUDIT_TABLE}" ORDER BY id DESC LIMIT 1')
+        row = {"timestamp": "2026-01-01T00:00:00+00:00", "event_type": "auth",
+               "user_id": "u2", "action": "login", "details": None}
         engine.execute(
-            f'UPDATE "{AUDIT_TABLE}" SET username = ?, hash_version = 1, entry_hash = ? '
-            "WHERE id = 3",
-            ("someone_else", _version_1_hash(row, row["prev_hash"])),
+            f'INSERT INTO "{AUDIT_TABLE}" (timestamp, event_type, user_id, username, '
+            "action, details, ip_address, prev_hash, entry_hash) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (row["timestamp"], "auth", "u2", "bob", "login", None, None,
+             last["entry_hash"], _version_1_hash(row, last["entry_hash"])),
         )
         engine.commit()
-        ok, message = audit.verify_chain()
-        assert ok is False
-        assert "hash_version 1" in message
+        assert audit.verify_chain() == (True, "Audit chain verified: 4 entries intact")
 
 
 def _version_1_hash(row, prev_hash: str) -> str:
@@ -221,6 +235,42 @@ class TestLogWrittenBeforeHashVersion:
         assert audit.verify_chain() == (True, "Audit chain verified: 3 entries intact")
         versions = engine.fetchall(f'SELECT hash_version FROM "{AUDIT_TABLE}" ORDER BY id')
         assert [row["hash_version"] for row in versions] == [1, 1, 2]
+
+    def test_column_added_by_another_process_meanwhile_is_ignored(self, engine, monkeypatch):
+        # Another process adds hash_version between this one's check and its
+        # ALTER TABLE, so ALTER TABLE fails with "duplicate column name".
+        AuditLogger(engine)
+        _hide_hash_version_column(engine, monkeypatch)
+        audit = AuditLogger(engine)
+        audit.log("auth", "login", user_id="u1")
+        assert audit.count() == 1
+
+    def test_other_errors_adding_the_column_are_raised(self, engine, monkeypatch):
+        AuditLogger(engine)
+        _hide_hash_version_column(engine, monkeypatch)
+        execute = engine.execute
+
+        def locked_alter_table(sql, params=()):
+            if sql.startswith("ALTER TABLE"):
+                raise sqlite3.OperationalError("database is locked")
+            return execute(sql, params)
+
+        monkeypatch.setattr(engine, "execute", locked_alter_table)
+        with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+            AuditLogger(engine)
+
+
+def _hide_hash_version_column(engine, monkeypatch):
+    """Make the column check miss hash_version, as if it were not added yet."""
+    fetchall = engine.fetchall
+
+    def columns_without_hash_version(sql, params=()):
+        rows = fetchall(sql, params)
+        if sql.startswith("PRAGMA table_info"):
+            rows = [row for row in rows if row["name"] != "hash_version"]
+        return rows
+
+    monkeypatch.setattr(engine, "fetchall", columns_without_hash_version)
 
 
 class TestReopen:
