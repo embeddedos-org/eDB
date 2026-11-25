@@ -31,6 +31,8 @@ class StorageEngine:
         # share; each thread keeps its own connection and transactions. Unlike a
         # file, memdb has no WAL: while one connection has a write transaction
         # open, the others wait for it (up to the busy timeout), even to read.
+        # It lives in this process's memory: a child made by os.fork() gets a
+        # copy, not a shared database, so it must open its own Database.
         # The database exists while a connection is open; _keeper holds one until close().
         self._uri = f"file:/edb-{uuid.uuid4().hex}?vfs=memdb" if path == ":memory:" else None
         self._keeper: sqlite3.Connection | None = None

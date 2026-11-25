@@ -218,6 +218,38 @@ def test_memory_reader_waits_for_an_open_write_transaction():
         db.close()
 
 
+def test_memory_reader_gives_up_after_the_busy_timeout():
+    # The write transaction stays open until the reader has finished, so the
+    # reader's wait always runs out. The reader connects before the transaction
+    # starts, and cuts its busy timeout to 0.1 s so the test does not wait 5 s.
+    db = Database(":memory:")
+    db.kv.set("a", 1)
+    connected, in_transaction = threading.Event(), threading.Event()
+    result = []
+
+    def read():
+        db.engine.conn.execute("PRAGMA busy_timeout = 100")
+        connected.set()
+        in_transaction.wait()
+        try:
+            result.append(db.kv.get("a"))
+        except Exception as e:
+            result.append(e)
+
+    reader = threading.Thread(target=read)
+    try:
+        reader.start()
+        connected.wait()
+        with db.transaction():
+            db.kv.set("b", 2)
+            in_transaction.set()
+            reader.join()
+        assert isinstance(result[0], sqlite3.OperationalError), result[0]
+        assert "database is locked" in str(result[0])
+    finally:
+        db.close()
+
+
 def test_memory_engine_without_memdb_raises_a_clear_error(monkeypatch):
     def no_memdb(*args, **kwargs):
         raise sqlite3.OperationalError("no such vfs: memdb")
