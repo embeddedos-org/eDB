@@ -30,6 +30,15 @@
 - `edb shell` prints the column header and `(0 rows)` for a query that matches no rows, and
   `OK (affected: 0)` for statements such as `CREATE TABLE`. Both printed `OK (affected: -1)`, sqlite3's
   rowcount for statements it does not count.
+- `Database(":memory:")` is one database shared by every thread that uses it. Each thread got its own
+  empty database, so data written in one thread was missing in another (`no such table`). This needs
+  SQLite 3.36 or newer; with an older SQLite, opening `:memory:` raises `RuntimeError` saying so. It has
+  no WAL, so while one thread has a write transaction open, a reader in another thread waits for it and
+  raises `database is locked` after 5 seconds. The database belongs to one process: a child created
+  with `os.fork()` gets a copy, not a shared database.
+- `StorageEngine.close()` (and `Database.close()`) closes the connections of every thread, not only
+  the calling thread's. A thread that uses the engine afterwards opens a new connection; for
+  `:memory:` that is a new, empty database.
 
 ### Changed
 
