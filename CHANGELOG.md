@@ -12,6 +12,9 @@
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
   instead of binding values to the wrong columns.
+- `GET /sql/tables/{table_name}` and `GET /admin/audit` reject a `limit` outside 1–1000, and an
+  `offset` that is negative or past SQLite's 64-bit range, with 422. A negative `limit` returned every
+  row, because SQLite reads it as "no limit", and a value past the 64-bit range failed with a 500 error.
 - `KeyValueStore.list_keys(prefix)` (and `GET /kv/keys?prefix=`, the `kv list` query) now matches the
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
