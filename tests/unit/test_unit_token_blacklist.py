@@ -63,7 +63,8 @@ class TestIsRevokedForUser:
         """Call revoke_all_for_user() and return the second it was recorded in."""
         bl.revoke_all_for_user(user_id)
         row = engine.fetchone(
-            f'SELECT revoked_at FROM "{BLACKLIST_TABLE}" WHERE user_id = ?', (user_id,)
+            f'SELECT MAX(revoked_at) AS revoked_at FROM "{BLACKLIST_TABLE}" WHERE user_id = ?',
+            (user_id,),
         )
         assert row is not None
         return int(datetime.fromisoformat(row["revoked_at"]).timestamp())
