@@ -21,22 +21,49 @@ LIST_TABLES_SQL = (
 # Quote characters a value may be wrapped in ("get key 'a b'").
 _VALUE_QUOTES = "'\""
 
+# Rule patterns.
+#
+# Each one stops at the last character the rule structurally requires -- the
+# "=" of a filter, the space after "key", the "into <table>" separator -- and
+# the free-form part is sliced out of the text afterwards by _extract_value().
+#
+# These used to carry the value inline, as ``['\"]?(.+?)['\"]?\s*$`` (and the
+# insert rule as ``(.+?)\s+``). A lazy ``.+?`` also matches whitespace, so it
+# overlapped the ``\s*``/``\s+`` beside it: a run of spaces had as many valid
+# splits as it had characters, and a query that could not match made the engine
+# try all of them. That is quadratic in the length of the run -- CodeQL
+# py/polynomial-redos, and ~81s of CPU for a 5,000-space "find" query.
+#
+# Keeping the open-ended tails out of the regexes removes the ambiguity: every
+# quantifier below is separated from its neighbour by a character class it
+# cannot overlap (``\s`` against ``\w``, or ``\s`` against a literal), so each
+# character of the input can be consumed in exactly one way.
+_FIND_HEAD = re.compile(r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=", re.IGNORECASE)
+_GET_KEY_HEAD = re.compile(r"get\s+key\s", re.IGNORECASE)
+_INSERT_HEAD = re.compile(r"(?:insert|add|create)\s+", re.IGNORECASE)
+_INSERT_SEP = re.compile(r"\s+(?:into|to|in)\s+(\w+)", re.IGNORECASE)
+_DELETE_HEAD = re.compile(
+    r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=", re.IGNORECASE
+)
+
 
 def _extract_value(raw: str) -> str | None:
-    """Trim a captured trailing value: surrounding whitespace, then one quote.
+    r"""Turn the text following a rule's last fixed character into a value.
 
-    The patterns below used to end in ``['\"]?(.+?)['\"]?\\s*$``. That tail is
-    ambiguous: the lazy ``.+?`` also matches whitespace, so it overlaps the
-    neighbouring ``\\s*``/``\\s+``. On input such as ``find a where b=`` plus a
-    long run of spaces the engine retried every split of that run, which is
-    quadratic in its length (CodeQL ``py/polynomial-redos``).
+    Trims surrounding whitespace, then at most one quote from each end --
+    exactly what the old ``['\"]?(.+?)['\"]?\s*$`` tail did, but by slicing
+    instead of by backtracking, so it is linear in the length of the input.
 
-    The patterns now capture the rest of the line with a single unambiguous
-    ``(.*)$`` group and the trimming happens here, in linear time. ``None``
-    means "no usable value", and the caller falls through to the next rule
-    exactly as a failed regex match used to.
+    Returns ``None`` where that tail used to fail to match, which leaves the
+    caller falling through to the next rule just as it did before.
     """
-    value = raw.strip()
+    # The old tail ended in ``$`` and ``.`` never matches a newline, so a value
+    # could not span lines: one trailing newline was fine (``$`` matches before
+    # it), an interior newline made the rule fail.
+    line = raw[:-1] if raw.endswith("\n") else raw
+    if "\n" in line:
+        return None
+    value = line.strip()
     # ``len(value) > 1`` mirrors the old ``.+?``, which always kept at least
     # one character and so never consumed a lone quote as a delimiter.
     if len(value) > 1 and value[0] in _VALUE_QUOTES:
@@ -114,16 +141,10 @@ class NLQueryTranslator:
         # "find <collection> where <key>=<value>" → DOCUMENT FIND
         # (checked before the generic SELECT arm below, which would
         # otherwise swallow "find <collection>" and drop the filter)
-        # The value is captured in one greedy, unambiguous `(.*)$` group and
-        # trimmed by _extract_value(); `.` still excludes newlines, so a value
-        # may not span lines, as before.
-        match = re.match(
-            r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=(.*)$",
-            text,
-            re.IGNORECASE,
-        )
+        # _FIND_HEAD stops at the "="; the value is whatever follows it.
+        match = _FIND_HEAD.match(text)
         if match:
-            value = _extract_value(match.group(3))
+            value = _extract_value(text[match.end() :])
             if value is not None:
                 collection = match.group(1)
                 key = match.group(2)
@@ -142,12 +163,11 @@ class NLQueryTranslator:
         # "get key <key>" → KV GET
         # (checked before the generic SELECT arm; the "key" keyword is
         # required so plain "get <table>" keeps its SELECT meaning)
-        # A single mandatory `\s` separates "key" from the captured remainder,
-        # so no two whitespace quantifiers sit next to each other; any extra
-        # leading whitespace is trimmed by _extract_value().
-        match = re.match(r"get\s+key\s(.*)$", text, re.IGNORECASE)
+        # _GET_KEY_HEAD stops at the one space "key" must be followed by; any
+        # further leading whitespace is trimmed by _extract_value().
+        match = _GET_KEY_HEAD.match(text)
         if match:
-            key = _extract_value(match.group(1))
+            key = _extract_value(text[match.end() :])
             if key is not None:
                 return TranslationResult(
                     original_text=text,
@@ -195,42 +215,40 @@ class NLQueryTranslator:
             )
 
         # "insert/add <data> into <table>" → INSERT
-        # `(\S(?:.*?\S)?)` pins the data to start and end on a non-space, so it
-        # can no longer overlap the surrounding `\s+` separators the way the old
-        # `(.+?)` did. The lazy `.*?` is bounded by a `\S` on both sides, so the
-        # split point is unambiguous. A whitespace-only capture was the only
-        # thing this excludes, and _parse_simple_data() rejected that anyway.
-        match = re.match(
-            r"(?:insert|add|create)\s+(\S(?:.*?\S)?)\s+(?:into|to|in)\s+(\w+)",
-            text,
-            re.IGNORECASE,
-        )
+        # The old `(.+?)\s+(?:into|to|in)\s+` searched for the first separator
+        # by growing the data one character at a time, retrying the whole
+        # separator at each step. Searching for the separator directly does the
+        # same thing in one left-to-right pass: _INSERT_SEP.search() returns the
+        # leftmost separator, which is the split the lazy `.+?` settled on.
+        # Starting one character in keeps the data non-empty, as `.+?` required.
+        match = _INSERT_HEAD.match(text)
         if match:
-            data_str = match.group(1)
-            table = match.group(2)
-            data = self._parse_simple_data(data_str)
-            if data:
-                return TranslationResult(
-                    original_text=text,
-                    translated_query={
-                        "type": "sql",
-                        "action": "insert",
-                        "table": table,
-                        "data": data,
-                    },
-                    confidence=0.5,
-                    explanation=f"INSERT into '{table}'",
-                )
+            start = match.end()
+            sep = _INSERT_SEP.search(text, start + 1)
+            # `.+?` never matched a newline, so a newline before the separator
+            # made the old rule fail outright.
+            if sep is not None and "\n" not in text[start : sep.start()]:
+                data_str = text[start : sep.start()]
+                table = sep.group(1)
+                data = self._parse_simple_data(data_str)
+                if data:
+                    return TranslationResult(
+                        original_text=text,
+                        translated_query={
+                            "type": "sql",
+                            "action": "insert",
+                            "table": table,
+                            "data": data,
+                        },
+                        confidence=0.5,
+                        explanation=f"INSERT into '{table}'",
+                    )
 
         # "delete from <table> where <key>=<value>" → DELETE
-        # Same unambiguous `(.*)$` + _extract_value() shape as the find arm.
-        match = re.match(
-            r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=(.*)$",
-            text,
-            re.IGNORECASE,
-        )
+        # Same head-plus-slice shape as the find arm.
+        match = _DELETE_HEAD.match(text)
         if match:
-            value = _extract_value(match.group(3))
+            value = _extract_value(text[match.end() :])
             if value is not None:
                 table = match.group(1)
                 key = match.group(2)
