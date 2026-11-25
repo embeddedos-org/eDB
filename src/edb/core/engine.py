@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import uuid
+import weakref
 from pathlib import Path
 from typing import Any, cast
+
+
+class _Connection(sqlite3.Connection):
+    """A plain sqlite3 connection that, unlike the base class, can be weakly referenced."""
 
 
 class StorageEngine:
@@ -13,22 +19,68 @@ class StorageEngine:
     def __init__(self, path: str = ":memory:") -> None:
         self._path = path
         self._local = threading.local()
+        # Every open connection, so close() can close the ones other threads opened.
+        # Weak references, so a connection is still freed when its thread exits.
+        self._conns: weakref.WeakSet[_Connection] = weakref.WeakSet()
+        self._conns_lock = threading.Lock()
+        # close() bumps this; a thread whose connection is older opens a new one.
+        self._generation = 0
+        # sqlite3.connect(":memory:") gives every connection its own empty
+        # database, so ":memory:" is opened as a named in-memory database
+        # (SQLite's memdb VFS, SQLite 3.36+) that all of this engine's connections
+        # share; each thread keeps its own connection and transactions. Unlike a
+        # file, memdb has no WAL: while one connection has a write transaction
+        # open, the others wait for it (up to the busy timeout), even to read.
+        # It lives in this process's memory: a child made by os.fork() gets a
+        # copy, not a shared database, so it must open its own Database.
+        # The database exists while a connection is open; _keeper holds one until close().
+        self._uri = f"file:/edb-{uuid.uuid4().hex}?vfs=memdb" if path == ":memory:" else None
+        self._keeper: sqlite3.Connection | None = None
         # Ensure the file exists
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         # Open a connection on the calling thread
         self._get_conn()
 
+    def _connect(self) -> sqlite3.Connection:
+        try:
+            conn = sqlite3.connect(
+                self._uri or self._path,
+                uri=self._uri is not None,
+                check_same_thread=False,
+                isolation_level=None,
+                factory=_Connection,
+                # Seconds a connection waits for another one's lock before
+                # "database is locked"; Python's default, stated here.
+                timeout=5.0,
+            )
+        except sqlite3.OperationalError as e:
+            if self._uri is not None and "no such vfs" in str(e):
+                raise RuntimeError(
+                    'A ":memory:" database needs SQLite 3.36 or newer with the memdb '
+                    f"VFS; this Python uses SQLite {sqlite3.sqlite_version}"
+                ) from e
+            raise
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        with self._conns_lock:
+            self._conns.add(conn)
+            if self._uri is not None and self._keeper is None:
+                self._keeper = conn
+        return conn
+
     def _get_conn(self) -> sqlite3.Connection:
         # threading.local() attributes are untyped (Any); keep the
         # connection in a typed local so this never returns Any.
         conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
-        if conn is None:
-            conn = sqlite3.connect(self._path, check_same_thread=False, isolation_level=None)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
+        if conn is None or getattr(self._local, "generation", None) != self._generation:
+            # Read the generation first: if close() runs while this connection is
+            # being opened, the next call sees the stale generation and reopens.
+            generation = self._generation
+            conn = self._connect()
             self._local.conn = conn
+            self._local.generation = generation
         return conn
 
     @property
@@ -51,9 +103,20 @@ class StorageEngine:
         self.conn.rollback()
 
     def close(self) -> None:
-        if hasattr(self._local, "conn") and self._local.conn:
-            self._local.conn.close()
-            self._local.conn = None
+        """Close every connection the engine has open, in all threads.
+
+        Call it once no other thread is using the engine: a thread in the middle
+        of a call gets an error, and its open transaction is rolled back. The
+        engine stays usable afterwards; the next call in any thread opens a new
+        connection. For ":memory:" that is a new, empty database with no tables,
+        so a Database built on it must be created again rather than reused.
+        """
+        with self._conns_lock:
+            for conn in list(self._conns):
+                conn.close()
+            self._conns.clear()
+            self._keeper = None
+            self._generation += 1
 
     def backup(self, dest: str) -> None:
         """Back up the database file to *dest* via SQLite's online backup API.
@@ -91,4 +154,3 @@ class StorageEngine:
     def engine(self) -> StorageEngine:
         """Self-reference for compatibility with code that calls .engine on StorageEngine."""
         return self
-
