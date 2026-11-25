@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- `edb serve` reads `EDB_DB_PATH`, `EDB_API_HOST` and `EDB_API_PORT` from the environment and `.env`
+  when `--db`, `--host` or `--port` is not given, and a flag that is given wins. Before, `--host` and
+  `--port` always fell back to `127.0.0.1:8000`, a `.env` database path was replaced by `edb_data.db`,
+  and an exported `EDB_DB_PATH` silently overrode `--db` while the startup banner showed the `--db` path.
+- `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
+  key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
+  second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
+  instead of binding values to the wrong columns.
 - `KeyValueStore.list_keys(prefix)` (and `GET /kv/keys?prefix=`, the `kv list` query) now matches the
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
@@ -13,6 +21,20 @@
   time of the read as `created_at`, a different value on every call. `update()` keeps the original
   value. An existing database gains the column on open; documents written before that report
   `created_at: null`.
+- `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
+  so the field was stored as the word `None`: a search for `none` matched the document and its result
+  reported the field as `"None"` instead of `""`.
+- `RelationalStore.create_table()` (and `POST /sql/tables`, the `sql create_table` query) now writes
+  `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
+  without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
+  accepted; any other default is rejected with `ValueError` before the table is created.
+- `RelationalStore.select()`, `update()` and `delete()` (and the `/sql` table routes and `sql` queries
+  that use them) now match a `None` value in `where` against `NULL`. They wrote `col = ?` with a
+  `None` parameter, which is never true in SQL, so `where={"age": None}` matched no rows. A `None`
+  value is now written as `col IS NULL`.
+- `edb shell` prints the column header and `(0 rows)` for a query that matches no rows, and
+  `OK (affected: 0)` for statements such as `CREATE TABLE`. Both printed `OK (affected: -1)`, sqlite3's
+  rowcount for statements it does not count.
 
 ### Changed
 

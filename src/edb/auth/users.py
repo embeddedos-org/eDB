@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
+import secrets
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -17,6 +19,7 @@ USERS_TABLE = "_edb_users"
 logger = logging.getLogger("edb.auth.users")
 
 MIN_PASSWORD_LENGTH = 12
+MAX_PASSWORD_BYTES = 72  # bcrypt cannot hash a longer password
 PASSWORD_POLICY = (
     "Password must be at least 12 characters and contain uppercase, "
     "lowercase, digit, and special character."
@@ -25,6 +28,8 @@ PASSWORD_POLICY = (
 
 def validate_password_strength(password: str) -> None:
     """Enforce password complexity requirements."""
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"Password too long — must be at most {MAX_PASSWORD_BYTES} bytes")
     errors: list[str] = []
     if len(password) < MIN_PASSWORD_LENGTH:
         errors.append(f"at least {MIN_PASSWORD_LENGTH} characters")
@@ -38,6 +43,12 @@ def validate_password_strength(password: str) -> None:
         errors.append("a special character")
     if errors:
         raise ValueError(f"Password too weak — must contain: {', '.join(errors)}")
+
+
+@functools.cache
+def _unmatchable_password_hash() -> str:
+    """bcrypt hash of a random secret, so a failed lookup costs as much as a wrong password."""
+    return bcrypt.hashpw(secrets.token_bytes(32), bcrypt.gensalt()).decode("utf-8")
 
 
 class UserManager:
@@ -92,9 +103,12 @@ class UserManager:
     def authenticate(self, username: str, password: str) -> User | None:
         """Authenticate a user by username and password."""
         user = self.get_by_username(username)
-        if user is None or not user.is_active:
+        # Run bcrypt even when the account is missing or inactive: returning early
+        # would make those logins measurably faster and reveal which usernames exist.
+        password_hash = user.password_hash if user else _unmatchable_password_hash()
+        if not self._verify_password(password, password_hash):
             return None
-        if not self._verify_password(password, user.password_hash):
+        if user is None or not user.is_active:
             return None
         return user
 
@@ -146,8 +160,11 @@ class UserManager:
         self._engine.commit()
         return bool(cursor.rowcount > 0)
 
-    def ensure_admin_exists(self, username: str, password: str) -> None:
-        """Create an admin user with the provided credentials if no admins exist."""
+    def ensure_admin_exists(self, username: str, password: str) -> bool:
+        """Create an admin user with the provided credentials if no admins exist.
+
+        Returns True if the admin was created, False if an admin already existed.
+        """
         validate_password_strength(password)
         row = self._engine.fetchone(
             f'SELECT id FROM "{USERS_TABLE}" WHERE role = ?', (Role.ADMIN.value,)
@@ -158,8 +175,9 @@ class UserManager:
                 skip_password_check=True,
             )
             logger.info("Admin user '%s' created.", username)
-        else:
-            logger.info("Admin user already exists, skipping creation.")
+            return True
+        logger.info("Admin user already exists, skipping creation.")
+        return False
 
     def change_password(self, user_id: str, current_password: str, new_password: str) -> bool:
         """Change a user password after verifying the current one."""
@@ -183,7 +201,12 @@ class UserManager:
         return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
     def _verify_password(self, password: str, password_hash: str) -> bool:
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        # bcrypt refuses passwords over 72 bytes with ValueError. No stored password
+        # can be that long, so it is simply a wrong password, not a server error.
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        except ValueError:
+            return False
 
     def _row_to_user(self, row: Any) -> User:
         return User(

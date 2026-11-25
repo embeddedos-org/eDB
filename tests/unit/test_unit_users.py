@@ -60,6 +60,11 @@ class TestValidatePasswordStrength:
         assert "special" in message
         assert str(MIN_PASSWORD_LENGTH) in message
 
+    def test_over_72_bytes_raises_a_clear_message(self):
+        # 70 characters, but "é" is 2 bytes in UTF-8, so this is 73 bytes.
+        with pytest.raises(ValueError, match="at most 72 bytes"):
+            validate_password_strength("Aa1!" + "é" * 3 + "x" * 63)
+
 
 class TestCreateUser:
     def test_create_returns_response_and_persists(self):
@@ -99,6 +104,19 @@ class TestCreateUser:
         assert manager.authenticate("bob", "weakpass") is not None
 
 
+def count_password_checks(manager: UserManager, monkeypatch) -> list[str]:
+    """Record every bcrypt check authenticate() makes, while still running it."""
+    calls: list[str] = []
+    real_verify = manager._verify_password
+
+    def spy(password: str, password_hash: str) -> bool:
+        calls.append(password_hash)
+        return real_verify(password, password_hash)
+
+    monkeypatch.setattr(manager, "_verify_password", spy)
+    return calls
+
+
 class TestAuthenticate:
     def test_success_returns_user(self):
         manager = make_manager()
@@ -120,6 +138,27 @@ class TestAuthenticate:
         resp = make_user(manager)
         assert manager.deactivate_user(resp.id) is True
         assert manager.authenticate("alice", STRONG) is None
+
+    def test_unknown_user_still_checks_a_password(self, monkeypatch):
+        manager = make_manager()
+        calls = count_password_checks(manager, monkeypatch)
+        assert manager.authenticate("ghost", STRONG) is None
+        assert len(calls) == 1
+
+    def test_password_over_72_bytes_fails_login_instead_of_raising(self):
+        manager = make_manager()
+        make_user(manager)
+        too_long = "A" * 73
+        assert manager.authenticate("alice", too_long) is None
+        assert manager.authenticate("ghost", too_long) is None
+
+    def test_deactivated_user_still_checks_a_password(self, monkeypatch):
+        manager = make_manager()
+        resp = make_user(manager)
+        manager.deactivate_user(resp.id)
+        calls = count_password_checks(manager, monkeypatch)
+        assert manager.authenticate("alice", STRONG) is None
+        assert len(calls) == 1
 
 
 class TestLookupsAndList:
@@ -175,6 +214,11 @@ class TestEnsureAdminExists:
         manager.ensure_admin_exists("other", STRONG2)
         assert manager.get_by_username("other") is None
         assert len(manager.list_users()) == 1
+
+    def test_reports_whether_it_created_the_admin(self):
+        manager = make_manager()
+        assert manager.ensure_admin_exists("root", STRONG) is True
+        assert manager.ensure_admin_exists("other", STRONG2) is False
 
     def test_weak_admin_password_rejected(self):
         manager = make_manager()

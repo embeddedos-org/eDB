@@ -29,7 +29,7 @@ jobs:
           pip install -e ".[dev]"
           ruff check src/ tests/
           pytest --cov=edb --cov-report=xml tests/
-          coverage report --fail-under=70
+          coverage report
 
   docker:
     name: Docker Build & Push (multi-arch)

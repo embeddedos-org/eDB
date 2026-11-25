@@ -73,11 +73,16 @@ class PromptSanitizer:
                 error=f"Unsafe translated query: {'; '.join(warnings)}",
             )
 
-        # Internal tables (_edb_users, _edb_audit_log, ...) start with "_" and
-        # are never reachable from eBot, matching RelationalStore.list_tables().
+        # Internal tables (_edb_users, _edb_audit_log, ...) start with "_", and
+        # SQLite's own start with "sqlite_"; neither is reachable from eBot,
+        # matching RelationalStore.list_tables().
         for field in ("table", "collection"):
             name = query.get(field)
-            if name and (not self._validator.validate_table_name(name) or name.startswith("_")):
+            if name and (
+                not self._validator.validate_table_name(name)
+                or name.startswith("_")
+                or name.lower().startswith("sqlite_")
+            ):
                 return TranslationResult(
                     original_text=result.original_text,
                     error=f"Invalid or reserved name: '{name}'",

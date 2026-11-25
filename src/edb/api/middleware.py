@@ -22,10 +22,28 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._max_requests = max_requests
         self._window = window_seconds
         self._requests: dict[str, list[float]] = defaultdict(list)
+        self._last_sweep = 0.0
+
+    def _sweep(self, now: float) -> None:
+        """Forget clients with no request inside the window.
+
+        A client's timestamps are only trimmed when it sends another request, so
+        without this every client IP ever seen would stay in memory for good.
+        """
+        stale = [
+            ip
+            for ip, times in self._requests.items()
+            if not times or now - times[-1] >= self._window
+        ]
+        for ip in stale:
+            del self._requests[ip]
+        self._last_sweep = now
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
+        if now - self._last_sweep >= self._window:
+            self._sweep(now)
 
         self._requests[client_ip] = [t for t in self._requests[client_ip] if now - t < self._window]
 

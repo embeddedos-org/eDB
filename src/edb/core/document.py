@@ -98,6 +98,10 @@ class DocumentStore:
     def find(self, collection: str, filter_dict: dict[str, Any] | None = None,
              filter_fn: Callable[[dict], bool] | None = None,
              limit: int | None = None, offset: int | None = None) -> list[Document]:
+        # Slicing with a negative number counts from the end of the list, which
+        # would silently return the wrong documents.
+        if (limit is not None and limit < 0) or (offset is not None and offset < 0):
+            raise ValueError("limit and offset must not be negative")
         rows = self._e.fetchall(
             "SELECT * FROM _documents WHERE collection = ?", (collection,)
         )

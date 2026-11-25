@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -39,6 +40,43 @@ def _order_by(clause: str) -> str:
     if len(parts) == 2 and parts[1].upper() in ("ASC", "DESC"):
         return f"{_ident(parts[0])} {parts[1].upper()}"
     raise ValueError(f"Invalid SQL ORDER BY clause: {clause!r}")
+
+
+def _default_literal(value: Any) -> str:
+    """Render a column default as an SQL literal for ``DEFAULT``.
+
+    DDL cannot bind "?" parameters, so the value is written into the
+    statement. Only plain scalars are accepted; text is quoted with any
+    single quote doubled, bytes become a blob literal.
+    """
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and math.isfinite(value):
+        return repr(value)
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    if isinstance(value, bytes):
+        return f"X'{value.hex()}'"
+    raise ValueError(f"Unsupported column default: {value!r}")
+
+
+def _where(where: dict[str, Any]) -> tuple[str, list[Any]]:
+    """Build the condition and parameters for a ``where`` dict.
+
+    Keys are ANDed. A None value means SQL NULL; "col = NULL" is never true,
+    so it is written as "col IS NULL" with no parameter.
+    """
+    clauses: list[str] = []
+    params: list[Any] = []
+    for k, v in where.items():
+        if v is None:
+            clauses.append(f"{_ident(k)} IS NULL")
+        else:
+            clauses.append(f"{_ident(k)} = ?")
+            params.append(v)
+    return " AND ".join(clauses), params
 
 
 @dataclass
@@ -82,6 +120,8 @@ class RelationalStore:
                 col += " NOT NULL"
             if c.unique and not c.primary_key:
                 col += " UNIQUE"
+            if c.default is not None:
+                col += f" DEFAULT {_default_literal(c.default)}"
             cols.append(col)
         ddl = f"CREATE TABLE IF NOT EXISTS {_ident(schema.name)} ({', '.join(cols)})"
         self._e.execute(ddl)
@@ -95,6 +135,7 @@ class RelationalStore:
     def list_tables(self) -> list[str]:
         rows = self._e.fetchall(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
+            " AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
         )
         return [r["name"] for r in rows]
 
@@ -117,17 +158,29 @@ class RelationalStore:
         if not rows:
             return QueryResult()
         table = _ident(table)
-        cols = ", ".join(_ident(k) for k in rows[0])
-        placeholders = ", ".join(["?"] * len(rows[0]))
-        cur = self._e.executemany(
+        keys = list(rows[0])
+        for i, r in enumerate(rows):
+            if set(r) != set(keys):
+                raise ValueError(
+                    f"insert_many: row {i} has columns {sorted(r)}, "
+                    f"expected {sorted(keys)}"
+                )
+        cols = ", ".join(_ident(k) for k in keys)
+        placeholders = ", ".join(["?"] * len(keys))
+        # Bind each row's values in the column order of the first row, not
+        # in the row's own dict order, so {"b": .., "a": ..} lands in a and b.
+        self._e.executemany(
             f"INSERT INTO {table} ({cols}) VALUES ({placeholders})",
-            [tuple(r.values()) for r in rows],
+            [tuple(r[k] for k in keys) for r in rows],
         )
+        # executemany() leaves cursor.lastrowid unset, so ask SQLite for the id of
+        # the last row this connection inserted (the batch's final row).
+        last_id = self._e.fetchone("SELECT last_insert_rowid()")
         self._e.commit()
         return QueryResult(
             rows=[],
             affected_rows=len(rows),
-            last_insert_id=(getattr(cur, "lastrowid", 0) or 0),
+            last_insert_id=last_id[0] if last_id else 0,
         )
 
     def select(
@@ -144,9 +197,9 @@ class RelationalStore:
         sql = f"SELECT {col_str} FROM {table}"
         params: list[Any] = []
         if where:
-            clauses = [f"{_ident(k)} = ?" for k in where]
-            sql += " WHERE " + " AND ".join(clauses)
-            params.extend(where.values())
+            where_clause, where_params = _where(where)
+            sql += " WHERE " + where_clause
+            params.extend(where_params)
         if order_by:
             sql += f" ORDER BY {_order_by(order_by)}"
         if limit is not None or offset is not None:
@@ -164,16 +217,16 @@ class RelationalStore:
     def update(self, table: str, data: dict[str, Any], where: dict[str, Any]) -> QueryResult:
         table = _ident(table)
         set_clause = ", ".join([f"{_ident(k)} = ?" for k in data])
-        where_clause = " AND ".join([f"{_ident(k)} = ?" for k in where])
-        params = tuple(data.values()) + tuple(where.values())
+        where_clause, where_params = _where(where)
+        params = tuple(data.values()) + tuple(where_params)
         cur = self._e.execute(f"UPDATE {table} SET {set_clause} WHERE {where_clause}", params)
         self._e.commit()
         return QueryResult(rows=[], affected_rows=cur.rowcount)
 
     def delete(self, table: str, where: dict[str, Any]) -> QueryResult:
         table = _ident(table)
-        where_clause = " AND ".join([f"{_ident(k)} = ?" for k in where])
-        cur = self._e.execute(f"DELETE FROM {table} WHERE {where_clause}", tuple(where.values()))
+        where_clause, where_params = _where(where)
+        cur = self._e.execute(f"DELETE FROM {table} WHERE {where_clause}", tuple(where_params))
         self._e.commit()
         return QueryResult(rows=[], affected_rows=cur.rowcount)
 

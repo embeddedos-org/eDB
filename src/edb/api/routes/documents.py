@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from edb.api.dependencies import (
     AppState,
@@ -29,8 +29,8 @@ class DocumentUpdateRequest(BaseModel):
 
 class DocumentFilterRequest(BaseModel):
     filter: dict[str, Any] | None = None
-    limit: int | None = None
-    offset: int | None = None
+    limit: int | None = Field(default=None, ge=0)
+    offset: int | None = Field(default=None, ge=0)
 
 
 @router.get("/collections")
