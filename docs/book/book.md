@@ -251,9 +251,9 @@ eDB/
         ▼              ▼             │ (self-contained)
 ┌───────────────────────────┐        │
 │     FastAPI REST API       │        │
-│  /api/sql  /api/docs       │        │
-│  /api/kv   /api/admin      │        │
-│  /api/ebot /api/auth       │        │
+│  /sql  /docs       │        │
+│  /kv   /admin      │        │
+│  /ebot /auth       │        │
 └───────────┬───────────────┘        │
             │                        │
 ┌───────────▼───────────────┐        │
@@ -715,14 +715,15 @@ eDB provides a full REST API via FastAPI with auto-generated OpenAPI documentati
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/auth/login` | Login and get JWT tokens |
-| POST | `/api/auth/refresh` | Refresh access token |
-| POST | `/api/auth/logout` | Invalidate refresh token |
+| POST | `/auth/login` | Login and get JWT tokens |
+| POST | `/auth/refresh` | Refresh access token |
+| POST | `/auth/password` | Change password; signs out every session, including the caller's |
+| POST | `/auth/logout` | Revoke the access token used for the call and, if given in the body, that refresh token |
 
 ### Login
 
 ```bash
-curl -X POST http://localhost:8000/api/auth/login \
+curl -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "your-password"}'
 ```
@@ -742,19 +743,19 @@ Response:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/sql/tables` | List tables |
-| POST | `/api/sql/tables` | Create table |
-| DELETE | `/api/sql/tables/{name}` | Drop table |
-| GET | `/api/sql/tables/{name}` | Get table data |
-| POST | `/api/sql/tables/{name}/rows` | Insert row |
-| PUT | `/api/sql/tables/{name}/rows/{id}` | Update row |
-| DELETE | `/api/sql/tables/{name}/rows/{id}` | Delete row |
-| POST | `/api/sql/query` | Execute SQL query |
+| GET | `/sql/tables` | List tables |
+| POST | `/sql/tables` | Create table |
+| DELETE | `/sql/tables/{name}` | Drop table |
+| GET | `/sql/tables/{name}` | Get table data |
+| POST | `/sql/tables/{name}/rows` | Insert row |
+| PUT | `/sql/tables/{name}/rows/{id}` | Update row |
+| DELETE | `/sql/tables/{name}/rows/{id}` | Delete row |
+| POST | `/sql/query` | Execute SQL query |
 
 ### Execute Query
 
 ```bash
-curl -X POST http://localhost:8000/api/sql/query \
+curl -X POST http://localhost:8000/sql/query \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"query": "SELECT * FROM users WHERE age > 21"}'
@@ -764,21 +765,21 @@ curl -X POST http://localhost:8000/api/sql/query \
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/docs/collections` | List collections |
-| POST | `/api/docs/{collection}` | Insert document |
-| GET | `/api/docs/{collection}` | Find documents |
-| GET | `/api/docs/{collection}/{id}` | Get document by ID |
-| PUT | `/api/docs/{collection}/{id}` | Update document |
-| DELETE | `/api/docs/{collection}/{id}` | Delete document |
+| GET | `/docs/collections` | List collections |
+| POST | `/docs/{collection}` | Insert document |
+| GET | `/docs/{collection}` | Find documents |
+| GET | `/docs/{collection}/{id}` | Get document by ID |
+| PUT | `/docs/{collection}/{id}` | Update document |
+| DELETE | `/docs/{collection}/{id}` | Delete document |
 
 ## 10.5 Key-Value Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/kv/{key}` | Get value |
-| PUT | `/api/kv/{key}` | Set value |
-| DELETE | `/api/kv/{key}` | Delete key |
-| GET | `/api/kv?prefix=session:` | List keys by prefix |
+| GET | `/kv/{key}` | Get value |
+| PUT | `/kv/{key}` | Set value |
+| DELETE | `/kv/{key}` | Delete key |
+| GET | `/kv?prefix=session:` | List keys by prefix |
 
 ## 10.6 Admin Endpoints
 
@@ -794,10 +795,10 @@ curl -X POST http://localhost:8000/api/sql/query \
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/ebot/query` | Natural language query |
+| POST | `/ebot/query` | Natural language query |
 
 ```bash
-curl -X POST http://localhost:8000/api/ebot/query \
+curl -X POST http://localhost:8000/ebot/query \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"question": "Show me all users who signed up last month"}'
@@ -823,21 +824,21 @@ eDB uses JSON Web Tokens for authentication with access and refresh token pairs.
 ```
 Client                              Server
   │                                    │
-  │  POST /api/auth/login              │
+  │  POST /auth/login              │
   │  {username, password}              │
   │ ──────────────────────────────────►│
   │                                    │  Verify credentials
   │  {access_token, refresh_token}     │  Generate JWT pair
   │ ◄──────────────────────────────────│
   │                                    │
-  │  GET /api/sql/tables               │
+  │  GET /sql/tables               │
   │  Authorization: Bearer <access>    │
   │ ──────────────────────────────────►│
   │                                    │  Validate JWT
   │  {tables: [...]}                   │  Check permissions
   │ ◄──────────────────────────────────│
   │                                    │
-  │  POST /api/auth/refresh            │
+  │  POST /auth/refresh            │
   │  {refresh_token}                   │
   │ ──────────────────────────────────►│
   │                                    │  Validate refresh
@@ -1002,7 +1003,7 @@ logs = audit.query(
 # View audit logs via REST API
 curl -X GET http://localhost:8000/admin/audit \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -G -d "user=admin" -d "limit=50"
+  -G -d "event_type=auth" -d "limit=50"
 ```
 
 ---
@@ -1273,7 +1274,7 @@ class EDBClient {
     }
 
     async query(sql) {
-        const response = await fetch(`${this.baseUrl}/api/sql/query`, {
+        const response = await fetch(`${this.baseUrl}/sql/query`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${this.token}`,
@@ -1285,14 +1286,14 @@ class EDBClient {
     }
 
     async getTables() {
-        const response = await fetch(`${this.baseUrl}/api/sql/tables`, {
+        const response = await fetch(`${this.baseUrl}/sql/tables`, {
             headers: { 'Authorization': `Bearer ${this.token}` },
         });
         return response.json();
     }
 
     async insertDoc(collection, document) {
-        const response = await fetch(`${this.baseUrl}/api/docs/${collection}`, {
+        const response = await fetch(`${this.baseUrl}/docs/${collection}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${this.token}`,
@@ -1304,14 +1305,14 @@ class EDBClient {
     }
 
     async kvGet(key) {
-        const response = await fetch(`${this.baseUrl}/api/kv/${key}`, {
+        const response = await fetch(`${this.baseUrl}/kv/${key}`, {
             headers: { 'Authorization': `Bearer ${this.token}` },
         });
         return response.json();
     }
 
     async kvSet(key, value, ttl = null) {
-        const response = await fetch(`${this.baseUrl}/api/kv/${key}`, {
+        const response = await fetch(`${this.baseUrl}/kv/${key}`, {
             method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${this.token}`,

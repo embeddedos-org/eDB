@@ -48,6 +48,20 @@ Refresh an access token.
 ### `GET /auth/me`
 Get current user profile. Requires auth.
 
+### `POST /auth/password`
+Change password. Requires auth.
+
+**Body:** `{"current_password": "...", "new_password": "..."}`
+
+On success every session for the user is signed out, including the one that made the call; log in again with the new password. A wrong current password returns 400 and signs nobody out; a new password that breaks the strength rules returns 400.
+
+### `POST /auth/logout`
+Sign out. Requires auth.
+
+**Body:** `{"refresh_token": "..."}` (optional)
+
+Revokes the access token used for the call and, if given, that refresh token.
+
 ---
 
 ## SQL (Relational)
@@ -71,7 +85,7 @@ Create a table.
 List all tables.
 
 ### `GET /sql/tables/{table_name}?limit=100&offset=0`
-Get table data.
+Get table data. `limit`: integer, 1 to 1000 (default 100); `offset`: integer, 0 or more (default 0). Out-of-range values return 422.
 
 ### `POST /sql/tables/{table_name}/select`
 Query with filters.
@@ -116,6 +130,8 @@ List all collections.
 ### `POST /docs/{collection}`
 Insert a document.
 
+Values must be valid JSON; `NaN` and infinities, at any depth, return 422.
+
 **Body:** `{"data": {"name": "Alice", "age": 30}, "doc_id": "optional-custom-id"}`
 
 ### `POST /docs/{collection}/find`
@@ -128,6 +144,8 @@ Get document by ID.
 
 ### `PUT /docs/{collection}/{doc_id}`
 Update document.
+
+Values must be valid JSON; `NaN` and infinities, at any depth, return 422.
 
 **Body:** `{"data": {"age": 31}, "merge": true}`
 
@@ -146,6 +164,8 @@ Get value.
 
 ### `PUT /kv/{key}`
 Set value.
+
+Values must be valid JSON; `NaN` and infinities, at any depth, return 422.
 
 **Body:** `{"value": {"theme": "dark"}, "ttl": 3600}`
 
@@ -191,8 +211,8 @@ Update user role.
 ### `DELETE /admin/users/{user_id}`
 Deactivate a user.
 
-### `GET /admin/audit?event_type=auth&limit=100`
-Get audit logs.
+### `GET /admin/audit?event_type=auth&limit=100&offset=0`
+Get audit logs. `limit`: integer, 1 to 1000 (default 100); `offset`: integer, 0 or more (default 0). Out-of-range values return 422.
 
 ### `GET /admin/audit/verify`
 Verify audit log hash chain integrity.
