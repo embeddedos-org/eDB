@@ -28,9 +28,11 @@ Behaviour pinned as the code implements it:
 """
 
 import sqlite3
+import threading
 
 import pytest
 
+from edb.core.database import Database
 from edb.core.engine import StorageEngine
 
 
@@ -118,3 +120,77 @@ def test_repr_format(mem, file_engine, tmp_path):
 
 def test_engine_property_is_self_reference(mem):
     assert mem.engine is mem
+
+
+def _in_thread(fn):
+    """Run fn in a new thread and return its result, or the exception it raised."""
+    result = []
+
+    def run():
+        try:
+            result.append(fn())
+        except Exception as e:
+            result.append(e)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join()
+    return result[0]
+
+
+def test_memory_database_is_shared_between_threads(mem):
+    mem.execute("CREATE TABLE t (v INTEGER)")
+    mem.execute("INSERT INTO t VALUES (1)")
+    rows = _in_thread(lambda: mem.fetchall("SELECT v FROM t"))
+    assert [row[0] for row in rows] == [1]
+
+
+def test_memory_transaction_keeps_other_threads_writes_out():
+    db = Database(":memory:")
+    try:
+        writer = threading.Thread(target=lambda: db.kv.set("other", 1))
+        with pytest.raises(RuntimeError), db.transaction():
+            db.kv.set("mine", 1)
+            writer.start()
+            writer.join(timeout=0.2)
+            # The writer waits for the transaction instead of joining it.
+            assert writer.is_alive()
+            raise RuntimeError("roll back")
+        writer.join()
+        assert db.kv.get("mine") is None
+        assert db.kv.get("other") == 1
+    finally:
+        db.close()
+
+
+def test_close_closes_connections_opened_by_other_threads(file_engine):
+    conns = [_in_thread(lambda: file_engine.conn) for _ in range(3)]
+    file_engine.close()
+    for conn in conns:
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+
+
+def test_a_thread_opens_a_new_connection_after_close(file_engine):
+    file_engine.execute("CREATE TABLE t (v INTEGER)")
+    inserted, closed = threading.Event(), threading.Event()
+    result = []
+
+    def worker():
+        file_engine.execute("INSERT INTO t VALUES (1)")
+        inserted.set()
+        closed.wait()
+        # Same thread, after close(): it must open a new connection, not reuse the closed one.
+        try:
+            result.append(file_engine.fetchall("SELECT v FROM t"))
+        except Exception as e:
+            result.append(e)
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    inserted.wait()
+    file_engine.close()
+    closed.set()
+    thread.join()
+    assert not isinstance(result[0], Exception), result[0]
+    assert [row[0] for row in result[0]] == [1]
