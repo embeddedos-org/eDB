@@ -12,13 +12,14 @@ from edb.api.dependencies import (
     get_app_state,
     require_permission,
 )
+from edb.api.validation import FiniteJSON
 from edb.auth.models import Permission
 
 router = APIRouter()
 
 
 class KVSetRequest(BaseModel):
-    value: Any
+    value: FiniteJSON
     # Seconds, with the same rule as the query DSL (KVQuery.ttl): a zero or
     # negative TTL would store a key that is already expired, so it must be
     # positive and finite.
