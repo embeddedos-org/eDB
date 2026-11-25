@@ -53,7 +53,10 @@ class KVQuery(BaseModel):
     action: str  # get, set, delete, list, exists
     key: str | None = None
     value: Any = None
-    ttl: int | None = None
+    # Seconds, as KeyValueStore.set() accepts. A zero, negative or non-finite TTL
+    # gives an expires_at that is already past (the write is silently lost) or
+    # never reached (the key never expires), so only positive finite values pass.
+    ttl: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     prefix: str | None = None
 
 

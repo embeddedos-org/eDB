@@ -40,6 +40,12 @@ class TestIndexLifecycle:
         fts.create_index("articles", ["title"])
         assert fts.list_indexes() == ["articles"]
 
+    def test_create_index_with_different_fields_is_rejected(self, articles):
+        with pytest.raises(ValueError, match="already exists"):
+            articles.create_index("articles", ["title"])
+        articles.index_document("articles", "1", {"title": "kept", "body": "intact"})
+        assert [r.doc_id for r in articles.search("articles", "intact")] == ["1"]
+
     def test_drop_index_removes_it_from_listing(self, articles):
         articles.drop_index("articles")
         assert articles.list_indexes() == []
@@ -54,6 +60,26 @@ class TestIndexLifecycle:
         assert fts.list_indexes() == []
 
 
+class TestNameValidation:
+    @pytest.mark.parametrize("name", ["my-index", "a b", "", "docs WHERE doc_id = ? OR 1 --"])
+    def test_invalid_index_name_is_rejected(self, fts, name):
+        with pytest.raises(ValueError, match="Invalid index name"):
+            fts.create_index(name, ["title"])
+        assert fts.list_indexes() == []
+
+    @pytest.mark.parametrize("field", ["my-field", "a b", "1st", "title) --"])
+    def test_invalid_field_name_is_rejected(self, fts, field):
+        with pytest.raises(ValueError, match="Invalid field name"):
+            fts.create_index("articles", [field])
+        assert fts.list_indexes() == []
+
+    def test_crafted_index_name_cannot_delete_other_documents(self, articles):
+        articles.index_document("articles", "1", {"title": "kept", "body": "x"})
+        with pytest.raises(ValueError, match="Invalid index name"):
+            articles.delete_document("articles WHERE doc_id = ? OR 1 --", "nope")
+        assert [r.doc_id for r in articles.search("articles", "kept")] == ["1"]
+
+
 class TestIndexing:
     def test_index_document_on_missing_index_raises(self, fts):
         with pytest.raises(ValueError, match="does not exist"):
@@ -64,6 +90,23 @@ class TestIndexing:
         results = articles.search("articles", "Title")
         assert len(results) == 1
         assert results[0].fields == {"title": "Only Title", "body": ""}
+
+    def test_none_fields_are_indexed_as_empty_text(self, articles):
+        articles.index_document("articles", "1", {"title": "Only Title", "body": None})
+        results = articles.search("articles", "Title")
+        assert len(results) == 1
+        assert results[0].fields == {"title": "Only Title", "body": ""}
+
+    def test_none_field_does_not_match_a_search_for_none(self, articles):
+        articles.index_document("articles", "1", {"title": "Hello", "body": None})
+        articles.index_document("articles", "2", {"title": None, "body": "world"})
+        assert articles.search("articles", "none") == []
+        assert articles.search("articles", "body:None") == []
+
+    def test_falsy_values_other_than_none_are_still_indexed(self, articles):
+        articles.index_document("articles", "1", {"title": 0, "body": False})
+        assert [r.doc_id for r in articles.search("articles", "title:0")] == ["1"]
+        assert [r.doc_id for r in articles.search("articles", "False")] == ["1"]
 
     def test_reindexing_same_doc_replaces_rather_than_duplicates(self, articles):
         articles.index_document("articles", "1", {"title": "Draft", "body": "alpha"})

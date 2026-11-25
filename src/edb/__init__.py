@@ -1,3 +1,3 @@
 """eDB: Unified Multi-Model Database Ecosystem."""
 
-__version__ = "0.1.0"
+__version__ = "3.0.1"

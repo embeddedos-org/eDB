@@ -100,6 +100,13 @@ def test_document_crud(app_client, admin_token):
     assert resp.status_code == 200
 
 
+def test_document_find_rejects_negative_limit_or_offset(app_client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    for body in ({"limit": -1}, {"offset": -1}):
+        resp = app_client.post("/docs/logs/find", json=body, headers=h)
+        assert resp.status_code == 422, body
+
+
 def test_kv_crud(app_client, admin_token):
     h = {"Authorization": f"Bearer {admin_token}"}
 
@@ -123,6 +130,36 @@ def test_kv_list_keys_prefix_is_literal(app_client, admin_token):
     resp = app_client.get("/kv/keys", params={"prefix": "user_"}, headers=h)
     assert resp.status_code == 200
     assert resp.json()["keys"] == ["user_1"]
+
+
+def test_kv_get_returns_a_stored_null(app_client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    resp = app_client.put("/kv/flag", json={"value": None}, headers=h)
+    assert resp.status_code == 200
+
+    resp = app_client.get("/kv/flag", headers=h)
+    assert resp.status_code == 200
+    assert resp.json() == {"key": "flag", "value": None}
+
+    assert app_client.get("/kv/missing", headers=h).status_code == 404
+
+
+def test_kv_ttl_accepts_fractional_seconds(app_client, admin_token):
+    h = {"Authorization": f"Bearer {admin_token}"}
+    resp = app_client.put("/kv/session", json={"value": "s", "ttl": 60.5}, headers=h)
+    assert resp.status_code == 200
+    assert app_client.get("/kv/session", headers=h).json()["value"] == "s"
+
+
+def test_kv_ttl_rejects_zero_and_negative(app_client, admin_token):
+    # Before, these returned 200 and overwrote the key with one that was
+    # already expired. A rejected write must leave the existing value alone.
+    h = {"Authorization": f"Bearer {admin_token}"}
+    assert app_client.put("/kv/kept", json={"value": "old"}, headers=h).status_code == 200
+    for ttl in (0, -1):
+        resp = app_client.put("/kv/kept", json={"value": "new", "ttl": ttl}, headers=h)
+        assert resp.status_code == 422, ttl
+    assert app_client.get("/kv/kept", headers=h).json()["value"] == "old"
 
 
 def test_admin_stats(app_client, admin_token):
@@ -196,3 +233,23 @@ def test_rbac_read_only_cannot_write(app_client, admin_token):
         "name": "forbidden", "columns": [{"name": "id", "col_type": "INTEGER"}],
     }, headers=rh)
     assert resp.status_code == 403
+
+
+def test_create_app_uses_the_given_config(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from edb.api.app import create_app
+    from edb.config import EDBConfig
+
+    monkeypatch.chdir(tmp_path)
+    config = EDBConfig(
+        db_path=str(tmp_path / "custom.db"),
+        jwt_secret="test-secret-key-minimum-32-bytes-ok!",
+    )
+    app = create_app(config)
+
+    with TestClient(app):
+        assert app.state.edb.config is config
+
+    assert (tmp_path / "custom.db").exists()
+    assert not (tmp_path / "edb_data.db").exists()

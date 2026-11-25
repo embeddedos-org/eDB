@@ -63,6 +63,36 @@ jobs:
           files: coverage.xml
           flags: edb-py${{ matrix.python-version }}
 
+  # ── Integration Tests (PR CI) ─────────────────────────────────────────────
+  # tests/integration/ previously ran only in the scheduled nightly/weekly
+  # full runs, so a PR could merge with a failing integration test (#143).
+  # This job mirrors the nightly matrix (ubuntu, Python 3.11/3.12) and runs
+  # the integration suite on every push and pull request. It is a separate
+  # job so the unit-job coverage gate is unaffected.
+  integration:
+    name: Integration (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run integration tests
+        run: python -m pytest tests/integration/ -v --tb=short
+
   # ── Build Python Package ──────────────────────────────────────────────────
   build:
     name: Build Python Package

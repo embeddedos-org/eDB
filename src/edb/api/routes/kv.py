@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from edb.api.dependencies import (
     AppState,
@@ -19,7 +19,10 @@ router = APIRouter()
 
 class KVSetRequest(BaseModel):
     value: Any
-    ttl: int | None = None
+    # Seconds, with the same rule as the query DSL (KVQuery.ttl): a zero or
+    # negative TTL would store a key that is already expired, so it must be
+    # positive and finite.
+    ttl: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 @router.get("/keys")
@@ -41,7 +44,7 @@ def get_value(
 ) -> dict[str, Any]:
     """Get a value by key."""
     value = state.database.kv.get(key)
-    if value is None:
+    if value is None and not state.database.kv.exists(key):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Key not found")
     return {"key": key, "value": value}
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,12 @@ CREATE TABLE IF NOT EXISTS _fts_meta (
     fields     TEXT NOT NULL
 )
 """
+
+# Index and field names are put into SQL as identifiers (they cannot be bound as
+# parameters), so only plain names are allowed. An index name only needs to be a
+# valid suffix of its "_fts_<name>" table; a field name is a column on its own.
+_INDEX_NAME = re.compile(r"[A-Za-z0-9_]+")
+_FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 @dataclass
@@ -29,10 +36,25 @@ class FullTextSearch:
         self._e.commit()
 
     def _table(self, name: str) -> str:
+        if not isinstance(name, str) or not _INDEX_NAME.fullmatch(name):
+            raise ValueError(f"Invalid index name: {name!r}")
         return f"_fts_{name}"
 
     def create_index(self, name: str, fields: list[str]) -> None:
+        for f in fields:
+            if not isinstance(f, str) or not _FIELD_NAME.fullmatch(f):
+                raise ValueError(f"Invalid field name: {f!r}")
         tbl = self._table(name)
+        # CREATE ... IF NOT EXISTS keeps the old columns, so recording new fields
+        # here would leave the index unusable; refuse instead of corrupting it.
+        meta = self._e.execute(
+            "SELECT fields FROM _fts_meta WHERE index_name = ?", (name,)
+        ).fetchone()
+        if meta is not None and json.loads(meta["fields"]) != fields:
+            raise ValueError(
+                f"Index '{name}' already exists with fields {json.loads(meta['fields'])}; "
+                "drop it first to change its fields"
+            )
         cols = ", ".join(fields)
         self._e.execute(
             f"CREATE VIRTUAL TABLE IF NOT EXISTS {tbl} "
@@ -58,7 +80,11 @@ class FullTextSearch:
         tbl = self._table(index)
         # Delete existing entry for this doc_id
         self._e.execute(f"DELETE FROM {tbl} WHERE doc_id = ?", (doc_id,))
-        vals = [doc_id] + [str(data.get(f, "")) for f in fields]
+        # A field that is missing or None is indexed as empty text. str(None)
+        # would store the word "None", which a search for "none" then matches.
+        vals = [doc_id] + [
+            "" if data.get(f) is None else str(data[f]) for f in fields
+        ]
         placeholders = ", ".join(["?"] * len(vals))
         self._e.execute(f"INSERT INTO {tbl} VALUES ({placeholders})", vals)
         self._e.commit()
