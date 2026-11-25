@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from edb.api.dependencies import (
@@ -122,8 +122,10 @@ def get_table_data(
     table_name: str,
     state: Annotated[AppState, Depends(get_app_state)],
     user: Annotated[dict[str, Any], Depends(require_permission(Permission.DB_READ))],
-    limit: int = 100,
-    offset: int = 0,
+    # A negative LIMIT means "no limit" to SQLite, and a value past its 64-bit
+    # range raises OverflowError, so both are bounded here.
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
 ) -> dict[str, Any]:
     """Get data from a table."""
     _reject_internal_table(table_name)
