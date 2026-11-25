@@ -41,7 +41,11 @@ _VALUE_QUOTES = "'\""
 _FIND_HEAD = re.compile(r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=", re.IGNORECASE)
 _GET_KEY_HEAD = re.compile(r"get\s+key\s", re.IGNORECASE)
 _INSERT_HEAD = re.compile(r"(?:insert|add|create)\s+", re.IGNORECASE)
+# Applied with .match() at a known offset, never .search(): a pattern that
+# starts with `\s+` must not be allowed to slide along a run of spaces, or it
+# re-scans the rest of the run from every offset inside it -- quadratic again.
 _INSERT_SEP = re.compile(r"\s+(?:into|to|in)\s+(\w+)", re.IGNORECASE)
+_NON_SPACE_RUN = re.compile(r"\S+")
 _DELETE_HEAD = re.compile(
     r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=", re.IGNORECASE
 )
@@ -215,23 +219,30 @@ class NLQueryTranslator:
             )
 
         # "insert/add <data> into <table>" → INSERT
-        # The old `(.+?)\s+(?:into|to|in)\s+` searched for the first separator
-        # by growing the data one character at a time, retrying the whole
-        # separator at each step. Searching for the separator directly does the
-        # same thing in one left-to-right pass: _INSERT_SEP.search() returns the
-        # leftmost separator, which is the split the lazy `.+?` settled on.
-        # Starting one character in keeps the data non-empty, as `.+?` required.
+        # The old `(.+?)\s+(?:into|to|in)\s+` grew the data one character at a
+        # time and retried the whole separator at each step. Because `\s+`
+        # follows the data, the data can only ever end where a run of
+        # non-space characters ends, so those offsets are the only candidate
+        # splits -- and the first one that works is the split the lazy `.+?`
+        # settled on. Each is tried with an anchored .match(), so no pattern
+        # ever slides along the whitespace and the whole scan stays linear.
         match = _INSERT_HEAD.match(text)
         if match:
             start = match.end()
-            sep = _INSERT_SEP.search(text, start + 1)
-            # `.+?` never matched a newline, so a newline before the separator
-            # made the old rule fail outright.
-            if sep is not None and "\n" not in text[start : sep.start()]:
-                data_str = text[start : sep.start()]
-                table = sep.group(1)
+            for token in _NON_SPACE_RUN.finditer(text, start):
+                data_str = text[start : token.end()]
+                # `.+?` never matched a newline, so a newline anywhere in the
+                # data made the old rule fail outright.
+                if "\n" in data_str:
+                    break
+                sep = _INSERT_SEP.match(text, token.end())
+                if sep is None:
+                    continue
+                # The regex committed to this first split, so an unparseable
+                # data string falls through to the next rule, as it did before.
                 data = self._parse_simple_data(data_str)
                 if data:
+                    table = sep.group(1)
                     return TranslationResult(
                         original_text=text,
                         translated_query={
@@ -243,6 +254,7 @@ class NLQueryTranslator:
                         confidence=0.5,
                         explanation=f"INSERT into '{table}'",
                     )
+                break
 
         # "delete from <table> where <key>=<value>" → DELETE
         # Same head-plus-slice shape as the find arm.

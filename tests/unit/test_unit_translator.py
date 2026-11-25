@@ -204,10 +204,21 @@ class TestNLQueryTranslator:
     @pytest.mark.parametrize(
         "prefix",
         [
-            "find 0 where 0=",  # translator.py find arm
-            "get key ",  # translator.py kv-get arm
-            "add ",  # translator.py insert arm
-            "delete 0 where 0=",  # translator.py delete arm
+            # The prefixes CodeQL named, for each of the four arms.
+            "find 0 where 0=",
+            "get key ",
+            "add ",
+            "delete 0 where 0=",
+            # ...and the same four with one character of data before the run.
+            # These matter on their own: a rule whose leading `\s+` is reached
+            # by a *scan* rather than an anchored match re-reads the rest of
+            # the run from every offset inside it, which is quadratic even
+            # though the bare-prefix form above stays fast (the rule's own
+            # greedy `\s+` swallows a run that directly follows the keyword).
+            "find 0 where 0=a",
+            "get key a",
+            "add a",
+            "delete 0 where 0=a",
         ],
     )
     def test_redos_adversarial_input_is_linear(self, prefix):
