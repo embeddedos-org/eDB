@@ -11,12 +11,14 @@ from edb.api.dependencies import AppState, get_app_state, get_current_user
 from edb.auth.models import (
     LoginRequest,
     LogoutRequest,
+    PasswordChangeRequest,
     Role,
     TokenPair,
     UserCreate,
     UserRegister,
     UserResponse,
 )
+from edb.auth.users import validate_password_strength
 
 router = APIRouter()
 
@@ -27,6 +29,11 @@ def register(
     state: Annotated[AppState, Depends(get_app_state)],
 ) -> UserResponse:
     """Register a new read-only user. Roles are assigned by an admin."""
+    # A password that breaks the rules is a bad request; 409 is for a taken username.
+    try:
+        validate_password_strength(user_data.password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     try:
         user = state.user_manager.create_user(
             UserCreate(
@@ -137,14 +144,18 @@ def get_me(
 
 @router.post("/password")
 def change_password(
-    body: dict[str, str],
+    body: PasswordChangeRequest,
     user: Annotated[dict[str, Any], Depends(get_current_user)],
     state: Annotated[AppState, Depends(get_app_state)],
 ) -> dict[str, str]:
     """Change the current user's password."""
-    result = state.user_manager.change_password(
-        user["sub"], body["current_password"], body["new_password"]
-    )
+    try:
+        result = state.user_manager.change_password(
+            user["sub"], body.current_password, body.new_password
+        )
+    except ValueError as e:
+        # The new password failed the strength rules: a client error, not a 500.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     if not result:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

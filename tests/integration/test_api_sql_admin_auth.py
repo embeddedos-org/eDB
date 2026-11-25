@@ -125,6 +125,14 @@ class TestSQLExecute:
         users = {u["username"]: u for u in app_client.get("/admin/users", headers=h).json()}
         assert users["writer"]["role"] == "read_write"
 
+    @pytest.mark.parametrize("sql", ["BEGIN", "SAVEPOINT sp1"])
+    def test_transaction_control_rejected(self, app_client, h, sql):
+        resp = app_client.post("/sql/execute", json={"sql": sql}, headers=h)
+        assert resp.status_code == 400
+        assert "Transaction control" in resp.json()["detail"]
+        resp = app_client.post("/sql/execute", json={"sql": "SELECT 1"}, headers=h)
+        assert resp.status_code == 200
+
 
 class TestSQLTables:
     def test_create_table_invalid_column_returns_400(self, app_client, h):
@@ -325,6 +333,15 @@ class TestAuthRegister:
         )
         assert resp.status_code == 409
 
+    @pytest.mark.parametrize(
+        ("password", "detail"),
+        [("weakpassword", "Password too weak"), ("Aa1!" + "x" * 76, "Password too long")],
+    )
+    def test_invalid_password_returns_400(self, app_client, password, detail):
+        resp = app_client.post("/auth/register", json={"username": "newbie", "password": password})
+        assert resp.status_code == 400
+        assert resp.json()["detail"].startswith(detail)
+
     @pytest.mark.parametrize("requested_role", ["admin", "read_write"])
     def test_caller_supplied_role_is_ignored(self, app_client, requested_role):
         user = _register(app_client, "eve", READER_PASSWORD, requested_role)
@@ -380,6 +397,22 @@ class TestAuthPassword:
         # The old password still works.
         _login(app_client, "admin", "Admin@12345678!")
 
+    def test_weak_new_password_returns_400(self, app_client, h):
+        resp = app_client.post(
+            "/auth/password",
+            json={"current_password": "Admin@12345678!", "new_password": "weakpassword"},
+            headers=h,
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"].startswith("Password too weak")
+        _login(app_client, "admin", "Admin@12345678!")
+
+    def test_missing_field_returns_422(self, app_client, h):
+        resp = app_client.post(
+            "/auth/password", json={"current_password": "Admin@12345678!"}, headers=h
+        )
+        assert resp.status_code == 422
+
 
 class TestEbotAuthorization:
     @pytest.mark.parametrize("text", ["show all _edb_users", "show all _edb_audit_log"])
@@ -390,9 +423,56 @@ class TestEbotAuthorization:
         assert resp.json()["success"] is False
         assert "result" not in resp.json()
 
-    def test_list_tables_hides_internal_tables(self, app_client, reader):
+    def test_list_tables_hides_internal_tables(self, app_client, reader, items_table):
         _, token = reader
         resp = app_client.post("/ebot/query", json={"text": "list tables"}, headers=_auth(token))
         assert resp.json()["success"] is True
         names = [row["name"] for row in resp.json()["result"]["data"]]
-        assert not [n for n in names if n.startswith("_")]
+        assert names == ["items"]
+
+
+class TestTokenReflectsCurrentAccount:
+    def test_deactivated_user_token_rejected(self, app_client, h):
+        user = _register(app_client, "departed", READER_PASSWORD, "read_only")
+        token = _login(app_client, "departed", READER_PASSWORD)["access_token"]
+        assert app_client.get("/sql/tables", headers=_auth(token)).status_code == 200
+
+        assert app_client.delete(f"/admin/users/{user['id']}", headers=h).status_code == 200
+
+        resp = app_client.get("/sql/tables", headers=_auth(token))
+        assert resp.status_code == 401
+
+    def test_demoted_admin_token_loses_admin_rights(self, app_client, h):
+        user = _register(app_client, "former", READER_PASSWORD, "read_only")
+        url = f"/admin/users/{user['id']}/role"
+        assert app_client.put(url, json={"role": "admin"}, headers=h).status_code == 200
+        token = _login(app_client, "former", READER_PASSWORD)["access_token"]
+        assert app_client.get("/admin/users", headers=_auth(token)).status_code == 200
+
+        assert app_client.put(url, json={"role": "read_only"}, headers=h).status_code == 200
+
+        resp = app_client.get("/admin/users", headers=_auth(token))
+        assert resp.status_code == 403
+
+
+class TestInternalTablesBlocked:
+    @pytest.mark.parametrize("table", ["_edb_users", "_edb_audit_log", "sqlite_sequence"])
+    def test_read_only_cannot_read_internal_table(self, app_client, reader, table):
+        _, token = reader
+        resp = app_client.get(f"/sql/tables/{table}", headers=_auth(token))
+        assert resp.status_code == 403
+        assert "password_hash" not in resp.text
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("POST", "/sql/tables/_edb_users/select", {}),
+            ("POST", "/sql/tables/_edb_users/insert", {"data": {"username": "x"}}),
+            ("PUT", "/sql/tables/_edb_users/update", {"data": {"role": "admin"}, "where": {}}),
+            ("DELETE", "/sql/tables/_edb_audit_log/delete", {"where": {"id": 1}}),
+            ("POST", "/sql/tables", {"name": "_shadow", "columns": [{"name": "id"}]}),
+        ],
+    )
+    def test_internal_tables_blocked_even_for_admin(self, app_client, h, method, path, body):
+        resp = app_client.request(method, path, json=body, headers=h)
+        assert resp.status_code == 403

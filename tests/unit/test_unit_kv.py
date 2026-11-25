@@ -312,3 +312,14 @@ def test_get_many_expired_delete_is_committed(tmp_path):
 
     rows = StorageEngine(path).fetchall("SELECT key FROM _kv")
     assert [r["key"] for r in rows] == ["alive"]
+
+
+def test_exists_is_true_for_a_key_holding_none(kv_store):
+    kv_store.set("k", None)
+    assert kv_store.exists("k") is True
+
+
+def test_exists_is_false_for_missing_and_expired_keys(kv_store):
+    kv_store.set("old", "x", ttl=-1)
+    assert kv_store.exists("missing") is False
+    assert kv_store.exists("old") is False

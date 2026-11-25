@@ -142,6 +142,12 @@ def test_find_offset_and_limit(populated):
     assert populated.find("users", offset=99) == []
 
 
+@pytest.mark.parametrize("kwargs", [{"limit": -1}, {"offset": -1}])
+def test_find_rejects_negative_limit_or_offset(populated, kwargs):
+    with pytest.raises(ValueError, match="must not be negative"):
+        populated.find("users", **kwargs)
+
+
 def test_find_filters_apply_before_offset_and_limit(populated):
     docs = populated.find(
         "users",

@@ -179,6 +179,12 @@ class TestDropAndListTables:
     def test_list_tables_empty(self, store):
         assert store.list_tables() == []
 
+    def test_list_tables_hides_sqlite_internal_tables(self, store):
+        # AUTOINCREMENT makes SQLite create its own sqlite_sequence table.
+        store.execute_raw("CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT)")
+        store.insert("t", {"id": 1})
+        assert store.list_tables() == ["t"]
+
     def test_drop_table(self, users):
         assert "users" in users.list_tables()
         users.drop_table("users")
@@ -201,12 +207,39 @@ class TestInsert:
     def test_insert_many(self, users):
         result = seed_users(users, 3)
         assert result.affected_rows == 3
-        # Quirk, pinned as-is: sqlite3's executemany does not surface
-        # a lastrowid, so insert_many reports last_insert_id 0 where
-        # insert reports the real id. Pinning current behaviour; any
-        # change to that is its own issue, not a coverage edit.
-        assert result.last_insert_id == 0
+        # The id of the batch's last row, as insert() reports its row's id.
+        assert result.last_insert_id == 3
+        assert result.last_row_id == 3
         assert users.select("users").row_count == 3
+
+    def test_insert_many_binds_by_column_name(self, users):
+        # Later rows may list their keys in a different order than the
+        # first row; each value must still land in its own column.
+        users.insert_many(
+            "users",
+            [
+                {"name": "ann", "email": "ann@example.com", "age": 30},
+                {"age": 41, "email": "bob@example.com", "name": "bob"},
+            ],
+        )
+        rows = users.select("users", order_by="id").rows
+        assert [(r["name"], r["email"], r["age"]) for r in rows] == [
+            ("ann", "ann@example.com", 30),
+            ("bob", "bob@example.com", 41),
+        ]
+
+    def test_insert_many_rejects_rows_with_other_columns(self, users):
+        # Same column count, different names: without a check the value of
+        # "age" would be bound to "email".
+        with pytest.raises(ValueError, match="row 1"):
+            users.insert_many(
+                "users",
+                [
+                    {"name": "ann", "email": "ann@example.com"},
+                    {"name": "bob", "age": 41},
+                ],
+            )
+        assert users.select("users").row_count == 0
 
     def test_insert_many_empty_rows(self, users):
         result = users.insert_many("users", [])
@@ -297,6 +330,40 @@ class TestUpdateDelete:
         seed_users(users, 1)
         result = users.delete("users", {"name": "ghost"})
         assert result.affected_rows == 0
+
+
+class TestWhereNone:
+    """A None value in a where dict means SQL NULL. "col = NULL" is never
+    true in SQL, so it has to be written as "col IS NULL"."""
+
+    @pytest.fixture
+    def with_null_age(self, users):
+        seed_users(users, 2)
+        users.insert("users", {"name": "nobody", "email": "nobody@example.com"})
+        return users
+
+    def test_select_where_none_matches_null(self, with_null_age):
+        result = with_null_age.select("users", where={"age": None})
+        assert [r["name"] for r in result.rows] == ["nobody"]
+
+    def test_select_where_none_anded_with_value(self, with_null_age):
+        hit = with_null_age.select("users", where={"age": None, "name": "nobody"})
+        miss = with_null_age.select("users", where={"age": None, "name": "user0"})
+        assert hit.row_count == 1
+        assert miss.row_count == 0
+
+    def test_update_where_none(self, with_null_age):
+        result = with_null_age.update("users", {"age": 0}, {"age": None})
+        assert result.affected_rows == 1
+        assert with_null_age.select("users", where={"name": "nobody"}).rows[0]["age"] == 0
+
+    def test_delete_where_none(self, with_null_age):
+        result = with_null_age.delete("users", {"age": None})
+        assert result.affected_rows == 1
+        assert [r["name"] for r in with_null_age.select("users", order_by="id").rows] == [
+            "user0",
+            "user1",
+        ]
 
 
 class TestExecuteRaw:

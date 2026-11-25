@@ -100,7 +100,9 @@ class KeyValueStore:
         return cur.rowcount > 0
 
     def exists(self, key: str) -> bool:
-        return self.get(key) is not None
+        # Not get(key) is not None: a key can hold None (JSON null) and still exist.
+        row = self._e.execute("SELECT expires_at FROM _kv WHERE key = ?", (key,)).fetchone()
+        return row is not None and not self._is_expired(row["expires_at"])
 
     def list_keys(self, prefix: str = "") -> list[str]:
         now = time.time()

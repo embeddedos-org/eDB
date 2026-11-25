@@ -103,6 +103,75 @@ class TestServe:
         assert captured["reload"] is False
 
 
+class TestServeConfig:
+    """edb serve takes a flag first, then EDB_* variables / .env, then the defaults."""
+
+    @staticmethod
+    def _serve(monkeypatch, tmp_path, argv, env=None, dotenv=None):
+        captured = {}
+
+        class FakeUvicorn:
+            @staticmethod
+            def run(app, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setitem(sys.modules, "uvicorn", FakeUvicorn())
+        monkeypatch.chdir(tmp_path)  # .env is read from the working directory
+        for key in ("EDB_DB_PATH", "EDB_API_HOST", "EDB_API_PORT"):
+            # setenv first so monkeypatch restores the key after the CLI sets it
+            monkeypatch.setenv(key, "")
+            monkeypatch.delenv(key)
+        for key, value in (env or {}).items():
+            monkeypatch.setenv(key, value)
+        if dotenv is not None:
+            (tmp_path / ".env").write_text(dotenv, encoding="utf-8")
+        run_cli(monkeypatch, ["serve", *argv])
+        return captured
+
+    def test_flag_db_wins_over_exported_env(self, monkeypatch, tmp_path, capsys):
+        self._serve(monkeypatch, tmp_path, ["--db", "from_flag.db"],
+                    env={"EDB_DB_PATH": "from_env.db"})
+        assert os.environ["EDB_DB_PATH"] == "from_flag.db"
+        assert "Database: from_flag.db" in capsys.readouterr().out
+
+    def test_env_used_when_no_flags(self, monkeypatch, tmp_path, capsys):
+        captured = self._serve(monkeypatch, tmp_path, [], env={
+            "EDB_DB_PATH": "from_env.db", "EDB_API_HOST": "0.0.0.0", "EDB_API_PORT": "9002",
+        })
+        assert captured["host"] == "0.0.0.0"
+        assert captured["port"] == 9002
+        assert os.environ["EDB_DB_PATH"] == "from_env.db"
+        out = capsys.readouterr().out
+        assert "Starting eDB API server on 0.0.0.0:9002" in out
+        assert "Database: from_env.db" in out
+
+    def test_dotenv_used_when_no_flags(self, monkeypatch, tmp_path, capsys):
+        captured = self._serve(monkeypatch, tmp_path, [], dotenv=(
+            "EDB_DB_PATH=from_dotenv.db\nEDB_API_HOST=0.0.0.0\nEDB_API_PORT=9001\n"
+        ))
+        assert captured["host"] == "0.0.0.0"
+        assert captured["port"] == 9001
+        assert os.environ["EDB_DB_PATH"] == "from_dotenv.db"
+        assert "Database: from_dotenv.db" in capsys.readouterr().out
+
+    def test_flags_win_over_dotenv(self, monkeypatch, tmp_path):
+        captured = self._serve(
+            monkeypatch, tmp_path,
+            ["--host", "127.0.0.2", "--port", "9100", "--db", "from_flag.db"],
+            dotenv="EDB_DB_PATH=from_dotenv.db\nEDB_API_HOST=0.0.0.0\nEDB_API_PORT=9001\n",
+        )
+        assert captured["host"] == "127.0.0.2"
+        assert captured["port"] == 9100
+        assert os.environ["EDB_DB_PATH"] == "from_flag.db"
+
+    def test_defaults_without_flags_env_or_dotenv(self, monkeypatch, tmp_path, capsys):
+        captured = self._serve(monkeypatch, tmp_path, [])
+        assert captured["host"] == "127.0.0.1"
+        assert captured["port"] == 8000
+        assert os.environ["EDB_DB_PATH"] == "edb_data.db"
+        assert "Database: edb_data.db" in capsys.readouterr().out
+
+
 class TestShell:
     def test_shell_exits_on_eof(self, monkeypatch, tmp_db_path, capsys):
         def fake_input(prompt=""):
@@ -136,6 +205,50 @@ class TestShell:
         assert "Error:" in capsys.readouterr().out
 
 
+    @staticmethod
+    def _session(monkeypatch, tmp_db_path, capsys, lines):
+        inputs = iter([*lines, "exit"])
+
+        def fake_input(prompt=""):
+            return next(inputs)
+
+        monkeypatch.setattr("builtins.input", fake_input)
+        run_cli(monkeypatch, ["shell", "--db", tmp_db_path])
+        return capsys.readouterr().out
+
+    def test_shell_shows_header_and_zero_rows_for_an_empty_select(
+        self, monkeypatch, tmp_db_path, capsys
+    ):
+        out = self._session(monkeypatch, tmp_db_path, capsys, [
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)",
+            "SELECT id, name FROM products WHERE id = 2",
+        ])
+        assert "  id | name\n" in out
+        assert "(0 rows)" in out
+        assert "affected: -1" not in out
+
+    def test_shell_reports_zero_affected_for_ddl(self, monkeypatch, tmp_db_path, capsys):
+        out = self._session(monkeypatch, tmp_db_path, capsys, [
+            "CREATE TABLE t (x INTEGER)",
+        ])
+        assert "OK (affected: 0)" in out
+        assert "affected: -1" not in out
+
+    def test_shell_still_reports_rows_and_affected_counts(
+        self, monkeypatch, tmp_db_path, capsys
+    ):
+        out = self._session(monkeypatch, tmp_db_path, capsys, [
+            "CREATE TABLE t (x INTEGER)",
+            "INSERT INTO t VALUES (1), (2)",
+            "SELECT x FROM t ORDER BY x",
+            "DELETE FROM t WHERE x = 99",
+        ])
+        assert "OK (affected: 2)" in out
+        assert "  x\n" in out and "  1\n" in out and "  2\n" in out
+        assert "(2 rows)" in out
+        assert out.count("OK (affected: 0)") == 2  # CREATE TABLE and the DELETE
+
+
 class TestBackupRestore:
     def test_backup_and_restore_round_trip(self, monkeypatch, tmp_db_path, tmp_path, capsys):
         from edb.core.database import Database
@@ -155,6 +268,53 @@ class TestBackupRestore:
         db2 = Database(restored)
         assert db2.kv.get("k") == "v"
         db2.close()
+
+    def test_restore_ignores_a_stale_wal_of_the_old_database(self, monkeypatch, tmp_path):
+        from edb.core.database import Database
+
+        backup = str(tmp_path / "backup.db")
+        target = str(tmp_path / "live.db")
+        db = Database(target)
+        db.kv.set("k", "backup value")
+        db.engine.backup(backup)
+        db.close()
+
+        # Leave a newer write in live.db-wal, as an unclean shutdown would.
+        db = Database(target)
+        db.kv.set("k", "newer value")
+        stale_wal = (tmp_path / "live.db-wal").read_bytes()
+        db.close()
+        (tmp_path / "live.db-wal").write_bytes(stale_wal)
+
+        run_cli(monkeypatch, ["restore", "--source", backup, "--db", target])
+        restored = Database(target)
+        assert restored.kv.get("k") == "backup value"
+        restored.close()
+
+    def test_failed_restore_leaves_the_old_database_intact(self, monkeypatch, tmp_path):
+        from edb.core.database import Database
+
+        target = str(tmp_path / "live.db")
+        db = Database(target)
+        db.close()
+
+        # Keep a write that exists only in live.db-wal, not yet in live.db.
+        db = Database(target)
+        db.kv.set("k", "only in the wal")
+        main_bytes = (tmp_path / "live.db").read_bytes()
+        wal_bytes = (tmp_path / "live.db-wal").read_bytes()
+        db.close()
+        (tmp_path / "live.db").write_bytes(main_bytes)
+        (tmp_path / "live.db-wal").write_bytes(wal_bytes)
+
+        missing = str(tmp_path / "missing.db")
+        with pytest.raises(FileNotFoundError):
+            run_cli(monkeypatch, ["restore", "--source", missing, "--db", target])
+
+        db = Database(target)
+        assert db.kv.get("k") == "only in the wal"
+        db.close()
+        assert list(tmp_path.glob("*.restore-tmp")) == []
 
 
 class TestAdminCreate:
@@ -282,6 +442,23 @@ class TestAdminCreateDuplicate:
         # catches it and reports instead of crashing.
         assert "already exists" in out
         assert "created successfully" not in out
+
+    def test_admin_create_when_another_admin_exists(self, monkeypatch, tmp_db_path, capsys):
+        from edb.auth.users import UserManager
+        from edb.core.database import Database
+
+        db = Database(tmp_db_path)
+        UserManager(db.engine).ensure_admin_exists("alice", "Str0ng!Pass1")
+        db.close()
+
+        run_cli(
+            monkeypatch,
+            ["admin", "create", "--username", "bob", "--password", "Str0ng!Pass2",
+             "--db", tmp_db_path],
+        )
+        out = capsys.readouterr().out
+        assert "created successfully" not in out
+        assert "An admin user already exists; 'bob' was not created." in out
 
 
 class TestMainGuard:
