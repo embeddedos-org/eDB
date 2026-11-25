@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from edb import __version__
 from edb.api.dependencies import AppState
@@ -16,6 +21,17 @@ from edb.api.routes import admin, auth, documents, ebot, graph, kv, sql
 from edb.config import EDBConfig
 
 logger = logging.getLogger("edb.api")
+
+
+def _json_safe(value: Any) -> Any:
+    """Replace NaN and infinities, which JSON cannot encode, with their string form."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 @asynccontextmanager
@@ -42,6 +58,16 @@ def create_app(config: EDBConfig | None = None) -> FastAPI:
     )
     # lifespan() builds the database and services from this same config.
     app.state.config = config
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        # FastAPI's default handler echoes each rejected input back in the 422
+        # body. Python's JSON parser accepts NaN and Infinity, but JSONResponse
+        # refuses to encode them, so a rejected NaN would turn the 422 into a 500.
+        detail = _json_safe(jsonable_encoder(exc.errors()))
+        return JSONResponse(status_code=422, content={"detail": detail})
 
     origins = [o.strip() for o in config.cors_origins.split(",") if o.strip()]
     app.add_middleware(

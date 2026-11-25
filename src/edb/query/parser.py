@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from pydantic import ValidationError
+
 from edb.query.models import (
     DocumentQuery,
     KVQuery,
@@ -48,17 +50,30 @@ class QueryParser:
         """
         query_type = self._resolve_type(query_dict)
 
-        if query_type == QueryType.SQL:
-            return self._parse_sql(query_dict)
-        elif query_type == QueryType.DOCUMENT:
-            return self._parse_document(query_dict)
-        elif query_type == QueryType.KV:
-            return self._parse_kv(query_dict)
-        else:
-            raise QueryParseError(f"Unknown query type: {query_dict.get('type')}")
+        # A field of the wrong type (e.g. "limit": "ten") fails the query model's
+        # validation; report it as a parse error like every other bad query.
+        try:
+            if query_type == QueryType.SQL:
+                return self._parse_sql(query_dict)
+            elif query_type == QueryType.DOCUMENT:
+                return self._parse_document(query_dict)
+            elif query_type == QueryType.KV:
+                return self._parse_kv(query_dict)
+            else:
+                raise QueryParseError(f"Unknown query type: {query_dict.get('type')}")
+        except ValidationError as e:
+            raise QueryParseError(f"Invalid query fields: {e}") from e
+
+    @staticmethod
+    def _lower_str(q: dict[str, Any], field: str) -> str:
+        """Return q[field] lower-cased, or raise QueryParseError if it is not a string."""
+        value = q.get(field, "")
+        if not isinstance(value, str):
+            raise QueryParseError(f"'{field}' must be a string, got {type(value).__name__}")
+        return value.lower()
 
     def _resolve_type(self, query_dict: dict[str, Any]) -> QueryType:
-        raw_type = query_dict.get("type", "").lower()
+        raw_type = self._lower_str(query_dict, "type")
         type_map = {
             "sql": QueryType.SQL,
             "relational": QueryType.SQL,
@@ -76,7 +91,7 @@ class QueryParser:
         return type_map[raw_type]
 
     def _parse_sql(self, q: dict[str, Any]) -> UnifiedQuery:
-        action = q.get("action", "").lower()
+        action = self._lower_str(q, "action")
         if action not in self.VALID_SQL_ACTIONS:
             raise QueryParseError(f"Invalid SQL action '{action}'. Valid: {self.VALID_SQL_ACTIONS}")
         if action != "raw" and not q.get("table"):
@@ -97,7 +112,7 @@ class QueryParser:
         return UnifiedQuery(type=QueryType.SQL, sql=sql_query)
 
     def _parse_document(self, q: dict[str, Any]) -> UnifiedQuery:
-        action = q.get("action", "").lower()
+        action = self._lower_str(q, "action")
         if action not in self.VALID_DOC_ACTIONS:
             raise QueryParseError(
                 f"Invalid document action '{action}'. Valid: {self.VALID_DOC_ACTIONS}"
@@ -118,7 +133,7 @@ class QueryParser:
         return UnifiedQuery(type=QueryType.DOCUMENT, document=doc_query)
 
     def _parse_kv(self, q: dict[str, Any]) -> UnifiedQuery:
-        action = q.get("action", "").lower()
+        action = self._lower_str(q, "action")
         if action not in self.VALID_KV_ACTIONS:
             raise QueryParseError(f"Invalid KV action '{action}'. Valid: {self.VALID_KV_ACTIONS}")
 
