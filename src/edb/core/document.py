@@ -62,8 +62,12 @@ class DocumentStore:
         self._e.execute(
             "INSERT OR IGNORE INTO _doc_collections (name) VALUES (?)", (collection,)
         )
+        # An upsert keeps the rowid: INSERT OR REPLACE deleted the row and
+        # inserted a new one, moving a re-inserted document to the end of
+        # find() and breaking paging (eDB#228). Same stored data as before.
         self._e.execute(
-            "INSERT OR REPLACE INTO _documents (doc_id, collection, data) VALUES (?, ?, ?)",
+            "INSERT INTO _documents (doc_id, collection, data) VALUES (?, ?, ?) "
+            "ON CONFLICT(doc_id, collection) DO UPDATE SET data = excluded.data",
             (did, collection, json.dumps(data)),
         )
         self._e.commit()
@@ -89,8 +93,12 @@ class DocumentStore:
         # would silently return the wrong documents.
         if (limit is not None and limit < 0) or (offset is not None and offset < 0):
             raise ValueError("limit and offset must not be negative")
+        # ORDER BY rowid is insertion order (insert() keeps the rowid on
+        # re-insert), so consecutive pages neither overlap nor skip documents
+        # unless one is deleted between requests.
         rows = self._e.fetchall(
-            "SELECT * FROM _documents WHERE collection = ?", (collection,)
+            "SELECT * FROM _documents WHERE collection = ? ORDER BY rowid",
+            (collection,),
         )
         docs = [Document(id=r["doc_id"], collection=collection,
                          data=json.loads(r["data"])) for r in rows]

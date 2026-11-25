@@ -222,3 +222,34 @@ def test_document_model_dump_shape():
         "data": {"k": "v"},
         "created_at": 123.5,
     }
+
+
+# --- re-insert keeps its place (eDB#228) -------------------------------------
+
+
+def test_reinserting_a_document_keeps_its_place_in_find(store):
+    for doc_id in ("d1", "d2", "d3", "d4", "d5", "d6"):
+        store.insert("c", {"v": doc_id}, doc_id=doc_id)
+
+    assert [d.id for d in store.find("c")] == ["d1", "d2", "d3", "d4", "d5", "d6"]
+
+    # An update keeps the place (UPDATE); a re-insert must too (upsert).
+    store.update("c", "d2", {"v": "d2-new"})
+    assert [d.id for d in store.find("c")] == ["d1", "d2", "d3", "d4", "d5", "d6"]
+
+    store.insert("c", {"v": "d2-again"}, doc_id="d2")
+    assert [d.id for d in store.find("c")] == ["d1", "d2", "d3", "d4", "d5", "d6"]
+    assert store.find_by_id("c", "d2").data == {"v": "d2-again"}
+
+
+def test_paging_does_not_skip_or_repeat_across_a_reinsert(store):
+    for doc_id in ("d1", "d2", "d3", "d4", "d5", "d6"):
+        store.insert("c", {"v": doc_id}, doc_id=doc_id)
+
+    first = [d.id for d in store.find("c", limit=2, offset=0)]
+    assert first == ["d1", "d2"]
+    store.insert("c", {"v": "d1-again"}, doc_id="d1")
+    pages = [first]
+    pages.append([d.id for d in store.find("c", limit=2, offset=2)])
+    pages.append([d.id for d in store.find("c", limit=2, offset=4)])
+    assert [d for page in pages for d in page] == ["d1", "d2", "d3", "d4", "d5", "d6"]
