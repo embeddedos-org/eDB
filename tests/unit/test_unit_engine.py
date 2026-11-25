@@ -148,10 +148,17 @@ def test_memory_database_is_shared_between_threads(mem):
 def test_memory_transaction_keeps_other_threads_writes_out():
     db = Database(":memory:")
     try:
-        writer = threading.Thread(target=lambda: db.kv.set("other", 1))
+        about_to_write = threading.Event()
+
+        def write_other():
+            about_to_write.set()
+            db.kv.set("other", 1)
+
+        writer = threading.Thread(target=write_other)
         with pytest.raises(RuntimeError), db.transaction():
             db.kv.set("mine", 1)
             writer.start()
+            about_to_write.wait()
             writer.join(timeout=0.2)
             # The writer waits for the transaction instead of joining it.
             assert writer.is_alive()
@@ -159,6 +166,29 @@ def test_memory_transaction_keeps_other_threads_writes_out():
         writer.join()
         assert db.kv.get("mine") is None
         assert db.kv.get("other") == 1
+    finally:
+        db.close()
+
+
+def test_memory_database_runs_transactions_from_many_threads():
+    db = Database(":memory:")
+    errors = []
+
+    def write_batches(n):
+        for i in range(20):
+            try:
+                db.kv.set_many({f"{n}-{i}-{j}": j for j in range(5)})
+            except Exception as e:
+                errors.append(e)
+
+    threads = [threading.Thread(target=write_batches, args=(n,)) for n in range(8)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert len(db.kv.list_keys("")) == 8 * 20 * 5
     finally:
         db.close()
 

@@ -1,9 +1,9 @@
 """EoS eDB StorageEngine — SQLite-backed low-level storage layer."""
 from __future__ import annotations
 
-import contextlib
 import sqlite3
 import threading
+import uuid
 import weakref
 from pathlib import Path
 from typing import Any, cast
@@ -25,12 +25,13 @@ class StorageEngine:
         self._conns_lock = threading.Lock()
         # close() bumps this; a thread whose connection is older opens a new one.
         self._generation = 0
-        # Each sqlite3.connect(":memory:") is a new, empty database, so for
-        # ":memory:" every thread shares one connection. _memory_lock serialises
-        # its use, and Database.transaction() holds it for the whole transaction
-        # so other threads' writes cannot join it.
-        self._shared: sqlite3.Connection | None = None
-        self._memory_lock = threading.RLock()
+        # sqlite3.connect(":memory:") gives every connection its own empty
+        # database, so ":memory:" is opened as a named in-memory database
+        # (SQLite's memdb VFS) that all of this engine's connections share, with
+        # the same per-connection transactions and locking as a file. It exists
+        # while at least one connection is open; _keeper holds one until close().
+        self._uri = f"file:/edb-{uuid.uuid4().hex}?vfs=memdb" if path == ":memory:" else None
+        self._keeper: sqlite3.Connection | None = None
         # Ensure the file exists
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -39,70 +40,66 @@ class StorageEngine:
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(
-            self._path, check_same_thread=False, isolation_level=None, factory=_Connection
+            self._uri or self._path,
+            uri=self._uri is not None,
+            check_same_thread=False,
+            isolation_level=None,
+            factory=_Connection,
         )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         with self._conns_lock:
             self._conns.add(conn)
+            if self._uri is not None and self._keeper is None:
+                self._keeper = conn
         return conn
 
     def _get_conn(self) -> sqlite3.Connection:
-        if self._path == ":memory:":
-            with self._memory_lock:
-                if self._shared is None:
-                    self._shared = self._connect()
-                return self._shared
         # threading.local() attributes are untyped (Any); keep the
         # connection in a typed local so this never returns Any.
         conn: sqlite3.Connection | None = getattr(self._local, "conn", None)
         if conn is None or getattr(self._local, "generation", None) != self._generation:
+            # Read the generation first: if close() runs while this connection is
+            # being opened, the next call sees the stale generation and reopens.
+            generation = self._generation
             conn = self._connect()
             self._local.conn = conn
-            self._local.generation = self._generation
+            self._local.generation = generation
         return conn
-
-    def locked(self) -> contextlib.AbstractContextManager[Any]:
-        """Hold the engine's lock for a block of calls (only ":memory:" has one)."""
-        if self._path == ":memory:":
-            return self._memory_lock
-        return contextlib.nullcontext()
 
     @property
     def conn(self) -> sqlite3.Connection:
         return self._get_conn()
 
     def execute(self, sql: str, params: tuple[Any, ...] | list[Any] = ()) -> sqlite3.Cursor:
-        with self.locked():
-            return self.conn.execute(sql, params)
+        return self.conn.execute(sql, params)
 
     def executemany(self, sql: str, params_seq: list[tuple]) -> sqlite3.Cursor:
-        with self.locked():
-            return self.conn.executemany(sql, params_seq)
+        return self.conn.executemany(sql, params_seq)
 
     def commit(self) -> None:
-        with self.locked():
-            # Only commit if not inside an explicit transaction (BEGIN)
-            if self.conn.in_transaction:
-                return
-            self.conn.commit()
+        # Only commit if not inside an explicit transaction (BEGIN)
+        if self.conn.in_transaction:
+            return
+        self.conn.commit()
 
     def rollback(self) -> None:
-        with self.locked():
-            self.conn.rollback()
+        self.conn.rollback()
 
     def close(self) -> None:
         """Close every connection the engine has open, in all threads.
 
-        The engine stays usable: the next call in any thread opens a new
+        Call it once no other thread is using the engine: a thread in the middle
+        of a call gets an error, and its open transaction is rolled back. The
+        engine stays usable afterwards; the next call in any thread opens a new
         connection. For ":memory:" that is a new, empty database.
         """
-        with self._memory_lock, self._conns_lock:
+        with self._conns_lock:
             for conn in list(self._conns):
                 conn.close()
             self._conns.clear()
-            self._shared = None
+            self._keeper = None
             self._generation += 1
 
     def backup(self, dest: str) -> None:
@@ -121,20 +118,18 @@ class StorageEngine:
 
 
     def table_exists(self, name: str) -> bool:
-        return (
-            self.fetchone("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,))
-            is not None
-        )
+        row = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        return row is not None
 
     def fetchone(self, sql: str, params: tuple = ()) -> sqlite3.Row | None:
         # Cursor.fetchone() is untyped in typeshed (Any); cast so callers
         # get the declared Row | None instead of Any.
-        with self.locked():
-            return cast("sqlite3.Row | None", self.conn.execute(sql, params).fetchone())
+        return cast("sqlite3.Row | None", self.conn.execute(sql, params).fetchone())
 
     def fetchall(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
-        with self.locked():
-            return self.conn.execute(sql, params).fetchall()
+        return self.conn.execute(sql, params).fetchall()
 
     def __repr__(self) -> str:
         return f"StorageEngine(path={self._path!r})"

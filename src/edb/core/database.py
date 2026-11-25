@@ -58,19 +58,16 @@ class Database:
     @contextmanager
     def transaction(self) -> Generator[None, None, None]:
         import uuid as _uuid
-        # For ":memory:" all threads share one connection; holding the engine's
-        # lock for the whole block keeps other threads' writes out of it.
-        with self._engine.locked():
-            conn = self._engine.conn
-            sp = 'sp_' + _uuid.uuid4().hex[:8]
-            conn.execute(f'SAVEPOINT {sp}')
-            try:
-                yield
-                conn.execute(f'RELEASE SAVEPOINT {sp}')
-            except Exception:
-                conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
-                conn.execute(f'RELEASE SAVEPOINT {sp}')
-                raise
+        conn = self._engine.conn
+        sp = 'sp_' + _uuid.uuid4().hex[:8]
+        conn.execute(f'SAVEPOINT {sp}')
+        try:
+            yield
+            conn.execute(f'RELEASE SAVEPOINT {sp}')
+        except Exception:
+            conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
+            conn.execute(f'RELEASE SAVEPOINT {sp}')
+            raise
 
     # ── Repr ─────────────────────────────────────────────────────────────────
     def __repr__(self) -> str:
