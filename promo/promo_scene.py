@@ -1,4 +1,7 @@
 """eDB — production promo video with synced narration."""
+import json
+import os
+
 from manim import (
     BOLD,
     DOWN,
@@ -26,8 +29,6 @@ from manim import (
     VGroup,
     Write,
 )
-import json
-import os
 
 # Load durations from generate_audio.py
 dur_path = os.path.join(os.path.dirname(__file__), "durations.json")
@@ -53,7 +54,7 @@ class ProductPromo(Scene):
         tagline = Text("Unified Multi-Model Database", font_size=28, color=GRAY_B)
         tagline.next_to(underline, DOWN, buff=0.4)
         # Tech badges
-        techs = "Python, SQLAlchemy, PostgreSQL".split(", ")
+        techs = ["Python", "SQLAlchemy", "PostgreSQL"]
         badges = VGroup()
         for t in techs:
             badge = VGroup(
@@ -130,7 +131,7 @@ class ProductPromo(Scene):
 
         components = ["Query Parser", "Optimizer", "Storage Engine", "Replication", "WAL"]
         boxes = VGroup()
-        for i, comp in enumerate(components):
+        for _i, comp in enumerate(components):
             box = VGroup(
                 RoundedRectangle(
                     corner_radius=0.12, width=2.2, height=1.0,
