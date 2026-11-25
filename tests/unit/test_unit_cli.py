@@ -269,6 +269,21 @@ class TestBackupRestore:
         assert db2.kv.get("k") == "v"
         db2.close()
 
+    def test_backup_of_a_missing_database_fails_and_creates_nothing(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        missing = tmp_path / "typo.db"
+        dest = tmp_path / "backup.db"
+        with pytest.raises(SystemExit) as exc:
+            run_cli(monkeypatch, ["backup", "--db", str(missing), "--dest", str(dest)])
+        assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "Backup created" not in out
+        assert f"No database at {missing}" in out
+        # Neither an empty database at the mistyped path nor an empty backup.
+        assert not missing.exists()
+        assert not dest.exists()
+
     def test_restore_ignores_a_stale_wal_of_the_old_database(self, monkeypatch, tmp_path):
         from edb.core.database import Database
 
