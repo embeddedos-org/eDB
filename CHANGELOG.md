@@ -19,6 +19,12 @@
   `TokenBlacklist.revoke_all_for_user()` records was never checked. Token times are whole seconds, so
   a token issued in the same second as the change is kept for the rest of its lifetime: by default up
   to 60 minutes for an access token and 7 days for a refresh token.
+- `POST /auth/refresh` and every route that needs a login reject a token without a `jti` with 401.
+  `POST /auth/logout` could not revoke such a token, although it answered `Logged out successfully`, and
+  a refresh token without one was not single-use. Every token eDB has issued since logout revocation
+  was added carries a `jti`, so only tokens from before then are affected. The same check also
+  rejects a token whose `jti` or `sub` is not a non-empty string, or whose `iat` is not a plain
+  integer, rather than passing the claim to the blacklist query.
 - `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
@@ -47,6 +53,13 @@
 - `PUT /kv/{key}`, `POST /docs/{collection}` and `PUT /docs/{collection}/{doc_id}` reject `NaN`,
   `Infinity` and `-Infinity` anywhere in the value or document with 422. Python's JSON parser accepts
   them although they are not valid JSON, so they were stored as invalid JSON and read back as `null`.
+- `POST /sql/tables/{table}/insert`, `PUT /sql/tables/{table}/update`, `POST /graph/nodes` and
+  `POST /graph/edges` reject `NaN`, `Infinity` and `-Infinity` anywhere in the written data or
+  properties with 422, like the KV and document routes since #219. They were stored and read back as
+  `null`. Core-layer writers (library/CLI callers) still accept them; that is the design question in
+  #223 step 2, not this change. These routes also inherit the 100-level nesting limit the KV and
+  document routes gained in #220, validating each written object as one value so the object itself
+  counts toward the limit.
 - `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
   so the field was stored as the word `None`: a search for `none` matched the document and its result
   reported the field as `"None"` instead of `""`.
@@ -57,6 +70,9 @@
 - `GraphStore.add_node()` for an existing `node_id` updates the node in place. It used
   `INSERT OR REPLACE`, which gave the node a new rowid and moved it to the end of `find_nodes()`, so a
   client paging through it could skip one node and see another twice.
+- `GET /graph/nodes?label=` no longer scans every node: `_graph_nodes` gains an index on `label`,
+  named `idx_graph_nodes_label`. The index is created on the next open of an existing database and
+  changes no results.
 - `RelationalStore.create_table()` (and `POST /sql/tables`, the `sql create_table` query) now writes
   `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
   without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
