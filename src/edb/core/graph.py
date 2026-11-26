@@ -23,7 +23,10 @@ CREATE TABLE IF NOT EXISTS _graph_edges (
 );
 CREATE INDEX IF NOT EXISTS idx_edge_src ON _graph_edges(src);
 CREATE INDEX IF NOT EXISTS idx_edge_dst ON _graph_edges(dst);
-CREATE INDEX IF NOT EXISTS idx_node_label ON _graph_nodes(label);
+-- SQLite index names are schema-wide, not per-table, so IF NOT EXISTS would
+-- silently skip this one if a user table already owned the name. Namespaced
+-- after the table it indexes to keep that unlikely.
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_label ON _graph_nodes(label);
 """
 
 
