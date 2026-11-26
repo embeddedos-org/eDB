@@ -250,6 +250,7 @@ def test_memory_reader_gives_up_after_the_busy_timeout():
         assert isinstance(result[0], sqlite3.OperationalError), result[0]
         assert "database is locked" in str(result[0])
     finally:
+        reader.join(timeout=5)
         db.close()
 
 
