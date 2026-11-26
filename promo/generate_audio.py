@@ -1,6 +1,7 @@
 """Generate per-segment narration using edge-tts (US English neural voice)."""
 import asyncio
 import json
+
 import edge_tts
 from mutagen.mp3 import MP3
 

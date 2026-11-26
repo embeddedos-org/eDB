@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-import sys
 import subprocess
+import sys
+
 
 def main():
     print("=== Running all production-ready tests via pytest ===")

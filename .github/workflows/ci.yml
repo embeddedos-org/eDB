@@ -39,7 +39,11 @@ jobs:
           pip install -e ".[dev]" pytest-benchmark
 
       - name: Lint (ruff)
-        run: ruff check . --select=E,F,W --ignore=E501
+        # No --select/--ignore here: a command-line --select *replaces* the
+        # project's rule list, so pyproject.toml's [tool.ruff.lint] select
+        # (E,F,W,I,N,UP,B,SIM,RUF) was being narrowed to E,F,W and six rule
+        # groups could not fail CI. pyproject.toml already ignores E501.
+        run: ruff check .
 
       - name: Type check (mypy)
         run: mypy . --ignore-missing-imports --no-strict-optional
