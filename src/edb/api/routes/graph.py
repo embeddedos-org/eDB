@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from edb.api.dependencies import AppState, get_app_state, require_permission
-from edb.api.validation import FiniteJSON
+from edb.api.validation import FiniteJSONObject
 from edb.auth.models import Permission
 
 router = APIRouter()
@@ -16,7 +16,7 @@ router = APIRouter()
 
 class AddNodeRequest(BaseModel):
     label: str
-    properties: dict[str, FiniteJSON] | None = None
+    properties: FiniteJSONObject | None = None
     node_id: str | None = None
 
 
@@ -24,7 +24,7 @@ class AddEdgeRequest(BaseModel):
     source_id: str
     target_id: str
     relationship: str
-    properties: dict[str, FiniteJSON] | None = None
+    properties: FiniteJSONObject | None = None
 
 
 class TraverseRequest(BaseModel):

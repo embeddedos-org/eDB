@@ -1,28 +1,28 @@
 # SPDX-License-Identifier: MIT
-"""Unit tests for edb.api.validation (the FiniteJSON request validator).
+"""Unit tests for edb.api.validation, the shared request-body validator.
 
-Pure-logic module: walks a decoded JSON value and rejects NaN/Infinity at any
-depth, so SQL, graph, KV and document writes return 422 instead of storing
-invalid JSON that reads back as null (#219, #223).
+Pure-logic module: walks a decoded JSON value, rejects NaN/Infinity at any
+depth so writes return 422 instead of storing invalid JSON that reads back as
+null (#219, #223), and rejects values nested past MAX_JSON_DEPTH (#220).
 """
 import json
 import math
 
 import pytest
 
-from edb.api.validation import _reject_non_finite
+from edb.api.validation import MAX_JSON_DEPTH, _reject_non_finite
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
 def test_rejects_non_finite_scalar(bad):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not valid JSON numbers"):
         _reject_non_finite(bad)
 
 
 @pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity"])
 def test_rejects_non_finite_nested_in_dict_and_list(bad):
     value = json.loads('{"a": [{"b": [' + bad + "]}]}")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not valid JSON numbers"):
         _reject_non_finite(value)
 
 
@@ -37,25 +37,41 @@ def test_accepts_special_but_finite_floats():
         assert _reject_non_finite(ok) == ok
 
 
-# Regression for the recursive walk this validator used to do. Starlette decodes
-# the request body with json.loads, whose C scanner accepts ~58k nesting levels,
-# far past the interpreter's recursion limit. Recursing once per level therefore
-# raised RecursionError inside request-model validation, before the route's
-# error handling ran, and the caller got a 500 for a body the parser accepted.
-DEEP = 20000
+# Depth counts enclosing containers and the root is 0, so a value wrapped in
+# MAX_JSON_DEPTH lists is the deepest accepted shape.
 
 
-def test_deep_nesting_does_not_raise_recursion_error():
-    value = json.loads("[" * DEEP + "1.5" + "]" * DEEP)
+@pytest.mark.parametrize("open_, close", [("[", "]"), ('{"a":', "}")])
+def test_accepts_a_value_at_exactly_the_depth_limit(open_, close):
+    value = json.loads(open_ * MAX_JSON_DEPTH + "1.5" + close * MAX_JSON_DEPTH)
     assert _reject_non_finite(value) is value
 
 
-def test_deep_nesting_still_rejects_a_non_finite_leaf():
-    value = json.loads("[" * DEEP + "NaN" + "]" * DEEP)
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize("open_, close", [("[", "]"), ('{"a":', "}")])
+def test_rejects_a_value_one_level_past_the_limit(open_, close):
+    depth = MAX_JSON_DEPTH + 1
+    value = json.loads(open_ * depth + "1.5" + close * depth)
+    with pytest.raises(ValueError, match="levels deep"):
         _reject_non_finite(value)
 
 
-def test_deep_dict_nesting_does_not_raise_recursion_error():
-    value = json.loads('{"a":' * DEEP + "1.5" + "}" * DEEP)
+def test_depth_rejection_does_not_recurse():
+    # The walk has to stay iterative: it must reject deep input rather than
+    # raise RecursionError out of request-model validation, which would reach
+    # the client as a 500. CPython's json scanner parses ~58,000 levels, far
+    # past the interpreter's recursion limit, so the validator sees them.
+    value = json.loads("[" * 20000 + "1.5" + "]" * 20000)
+    with pytest.raises(ValueError, match="levels deep"):
+        _reject_non_finite(value)
+
+
+def test_a_wide_shallow_value_is_not_treated_as_deep():
+    # Depth is per branch, not a count of visited nodes.
+    value = {str(i): [i, {"k": i}] for i in range(5000)}
     assert _reject_non_finite(value) is value
+
+
+def test_non_finite_is_still_found_below_a_shallow_prefix():
+    value = json.loads("[" * 50 + "NaN" + "]" * 50)
+    with pytest.raises(ValueError, match="not valid JSON numbers"):
+        _reject_non_finite(value)

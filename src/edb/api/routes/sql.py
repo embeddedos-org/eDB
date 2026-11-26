@@ -13,7 +13,7 @@ from edb.api.dependencies import (
     get_app_state,
     require_permission,
 )
-from edb.api.validation import FiniteJSON
+from edb.api.validation import FiniteJSONObject
 from edb.auth.models import Permission
 
 router = APIRouter()
@@ -30,11 +30,11 @@ class CreateTableRequest(BaseModel):
 
 
 class InsertRequest(BaseModel):
-    data: dict[str, FiniteJSON]
+    data: FiniteJSONObject
 
 
 class UpdateRequest(BaseModel):
-    data: dict[str, FiniteJSON]
+    data: FiniteJSONObject
     where: dict[str, Any]
 
 

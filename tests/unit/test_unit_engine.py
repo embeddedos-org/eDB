@@ -243,10 +243,14 @@ def test_memory_reader_gives_up_after_the_busy_timeout():
         with db.transaction():
             db.kv.set("b", 2)
             in_transaction.set()
-            reader.join()
+            # Bounded, so a reader that never gives up fails the test instead of
+            # hanging it: leaving the block rolls back and releases the reader.
+            reader.join(timeout=30)
+            assert not reader.is_alive(), "reader never gave up"
         assert isinstance(result[0], sqlite3.OperationalError), result[0]
         assert "database is locked" in str(result[0])
     finally:
+        reader.join(timeout=5)
         db.close()
 
 
