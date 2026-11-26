@@ -86,10 +86,211 @@ class TestNLQueryTranslator:
         r = self.t.translate("get key session-token")
         assert r.translated_query == {"type": "kv", "action": "get", "key": "session-token"}
 
+    def test_find_keeps_case_of_collection_field_and_value(self):
+        r = self.t.translate("find Users where Name=Ada")
+        assert r.translated_query == {
+            "type": "document",
+            "action": "find",
+            "collection": "Users",
+            "filter": {"Name": "Ada"},
+        }
+
+    def test_get_key_keeps_case(self):
+        r = self.t.translate("GET KEY Session-Token")
+        assert r.translated_query == {"type": "kv", "action": "get", "key": "Session-Token"}
+
+    def test_insert_keeps_case_of_values(self):
+        r = self.t.translate("insert name=Ada into users")
+        assert r.translated_query["data"] == {"name": "Ada"}
+
+    def test_delete_where_keeps_case_of_value(self):
+        r = self.t.translate("Delete from users where name='Ada'")
+        assert r.translated_query["where"] == {"name": "Ada"}
+
+    def test_count_keeps_case_of_collection(self):
+        r = self.t.translate("How many Orders")
+        assert r.translated_query["collection"] == "Orders"
+
+    def test_find_with_mixed_case_value_matches_stored_document(self):
+        from edb.core.database import Database
+        from edb.query.parser import QueryParser
+        from edb.query.planner import QueryPlanner
+
+        with Database(":memory:") as db:
+            # Two documents differing only in case: a find that ignored its
+            # filter, or lowercased the value, would return the wrong one or
+            # both, so row_count alone cannot pass by accident.
+            db.docs.insert("users", {"name": "Ada"})
+            db.docs.insert("users", {"name": "ada"})
+            r = self.t.translate("find users where name=Ada")
+            result = QueryPlanner(db).execute(QueryParser().parse(r.translated_query))
+            assert result.success
+            assert result.row_count == 1
+            assert [d["data"]["name"] for d in result.data] == ["Ada"]
+
+    # ------------------------------------------------------------------
+    # A newline between a rule's keyword and its value is separator
+    # whitespace, not part of the value. The patterns that used to absorb it
+    # (`\s+` after "key", `\s*` after "=") were replaced by a slice, so
+    # rejecting it would silently reroute these queries -- "get key\n<k>"
+    # to a SELECT on a table called "key", and "find ... =\n<v>" to an
+    # *unfiltered* SELECT that returns every row.
+    # ------------------------------------------------------------------
+
+    def test_get_key_accepts_a_newline_before_the_key(self):
+        r = self.t.translate("get key \nSession-Token")
+        assert r.translated_query == {
+            "type": "kv",
+            "action": "get",
+            "key": "Session-Token",
+        }
+
+    def test_find_accepts_a_newline_before_the_value(self):
+        r = self.t.translate("find users where name=\nAda")
+        assert r.translated_query["action"] == "find"
+        assert r.translated_query["filter"] == {"name": "Ada"}
+
+    def test_delete_accepts_a_newline_before_the_value(self):
+        r = self.t.translate("delete from users where name=\nAda")
+        assert r.translated_query["action"] == "delete"
+        assert r.translated_query["where"] == {"name": "Ada"}
+
+    def test_value_containing_a_newline_is_still_rejected(self):
+        # `.` never matched a newline, so a value could not span lines.
+        assert self.t.translate("get key a\nb").translated_query != {
+            "type": "kv",
+            "action": "get",
+            "key": "a\nb",
+        }
+
     def test_gibberish_errors_with_hint(self):
         r = self.t.translate("florp the wobble")
         assert r.error is not None
         assert "show all users" in r.error
+
+    # ------------------------------------------------------------------
+    # ReDoS regression (CodeQL py/polynomial-redos, 4 high alerts).
+    #
+    # The four patterns below used to pair a lazy `(.+?)` with an adjacent
+    # `\s*`/`\s+`, so a long run of spaces made matching quadratic. The
+    # patterns are now unambiguous; these tests pin both that each entry
+    # point still translates correctly (including runs of internal
+    # whitespace and preserved case) and that the blow-up is gone.
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            # find: keywords in any case, names/fields/values keep theirs,
+            # and runs of internal whitespace survive inside the value.
+            (
+                "find Users where Name=Ada   Lovelace",
+                {
+                    "type": "document",
+                    "action": "find",
+                    "collection": "Users",
+                    "filter": {"Name": "Ada   Lovelace"},
+                },
+            ),
+            (
+                "FIND IN Orders WHERE Status='In   Transit'",
+                {
+                    "type": "document",
+                    "action": "find",
+                    "collection": "Orders",
+                    "filter": {"Status": "In   Transit"},
+                },
+            ),
+            # get key: extra spaces after the keyword are separators, but
+            # spaces inside the key are part of the key.
+            (
+                "get key   Session   Token",
+                {"type": "kv", "action": "get", "key": "Session   Token"},
+            ),
+            (
+                'GET KEY "My   Key"',
+                {"type": "kv", "action": "get", "key": "My   Key"},
+            ),
+            # delete: same value handling as find.
+            (
+                "Delete from Users where Name='Ada   Lovelace'",
+                {
+                    "type": "sql",
+                    "action": "delete",
+                    "table": "Users",
+                    "where": {"Name": "Ada   Lovelace"},
+                },
+            ),
+        ],
+    )
+    def test_redos_fix_keeps_translation(self, query, expected):
+        r = self.t.translate(query)
+        assert r.error is None
+        assert r.translated_query == expected
+
+    def test_redos_fix_keeps_insert_with_internal_whitespace(self):
+        # The insert data is captured by its own pattern; runs of spaces
+        # between the key=value pairs must still parse.
+        r = self.t.translate("ADD Name=Ada,   Age=36   INTO   Users")
+        assert r.error is None
+        assert r.translated_query["type"] == "sql"
+        assert r.translated_query["action"] == "insert"
+        assert r.translated_query["table"] == "Users"
+        assert r.translated_query["data"] == {"Name": "Ada", "Age": "36"}
+
+    @pytest.mark.parametrize(
+        "prefix",
+        [
+            # The prefixes CodeQL named, for each of the four arms.
+            "find 0 where 0=",
+            "get key ",
+            "add ",
+            "delete 0 where 0=",
+            # ...and the same four with one character of data before the run.
+            # These matter on their own: a rule whose leading `\s+` is reached
+            # by a *scan* rather than an anchored match re-reads the rest of
+            # the run from every offset inside it, which is quadratic even
+            # though the bare-prefix form above stays fast (the rule's own
+            # greedy `\s+` swallows a run that directly follows the keyword).
+            "find 0 where 0=a",
+            "get key a",
+            "add a",
+            "delete 0 where 0=a",
+        ],
+    )
+    def test_redos_adversarial_input_is_linear(self, prefix):
+        # The exact prefixes CodeQL reported, plus a long run of spaces. The
+        # trailing "x\ny" earns its keep twice: it survives translate()'s
+        # .strip(), so the space run really reaches the regexes, and the
+        # embedded newline blocks the value capture ("." never matches a
+        # newline) so the overall match fails -- a failing match is what made
+        # the old patterns retry every split of the space run.
+        #
+        # Timed rather than asserted on a wall clock budget alone: the old
+        # patterns were quadratic, so 8x the input cost ~64x the time. A
+        # generous 8x allowance still fails loudly on a quadratic regression
+        # while staying stable on slow/loaded CI runners.
+        import time
+
+        def elapsed(n):
+            text = prefix + " " * n + "x\ny"
+            best = float("inf")
+            for _ in range(3):
+                t0 = time.perf_counter()
+                self.t.translate(text)
+                best = min(best, time.perf_counter() - t0)
+            return best
+
+        small = elapsed(2_000)
+        large = elapsed(16_000)
+
+        # Absolute ceiling: the old code needed many seconds here.
+        assert large < 1.0, f"{prefix!r} took {large:.3f}s on 16k spaces"
+        # Growth check: linear-ish, nowhere near the ~64x of a quadratic scan.
+        floor = 1e-4  # ignore timer noise on very fast runs
+        assert large <= max(small, floor) * 8, (
+            f"{prefix!r} scaled {large / max(small, floor):.1f}x for 8x input"
+        )
 
     def test_kwargs_stored(self):
         t = NLQueryTranslator(provider="rule_based", foo="bar")
