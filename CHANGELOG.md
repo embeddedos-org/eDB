@@ -23,6 +23,11 @@
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
   instead of binding values to the wrong columns.
+- A KV value or document nested more than 100 levels deep is rejected with 422 instead of being
+  stored and then failing every response with 500. Past about 300 levels FastAPI/Pydantic could not
+  serialize the response, so the write succeeded and the value could never be read back; the 422
+  error path itself is also guarded, so a rejected input nested ~500+ levels deep still returns 422
+  rather than a 500.
 - `GET /sql/tables/{table_name}` and `GET /admin/audit` reject a `limit` outside 1–1000, and an
   `offset` that is negative or past SQLite's 64-bit range, with 422. A negative `limit` returned every
   row, because SQLite reads it as "no limit", and a value past the 64-bit range failed with a 500 error.
