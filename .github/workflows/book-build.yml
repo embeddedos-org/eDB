@@ -145,6 +145,12 @@ jobs:
             CITE_ARGS="--citeproc --bibliography=references.bib"
           fi
 
+          # Headers and footers go through Eisvogel's own header-*/footer-*
+          # variables, NOT fancyhdr. With book=true the template builds on
+          # scrbook and loads scrlayer-scrpage, which defines \chead, so adding
+          # \usepackage{fancyhdr} through header-includes killed the build with
+          # "! LaTeX Error: Command \chead already defined."
+          # headsepline/footsepline in the template draw the head/foot rules.
           pandoc \
             book.md \
             -o "${{ steps.meta.outputs.pdf_name }}" \
@@ -168,6 +174,9 @@ jobs:
             -V toc=true \
             -V toc-depth=3 \
             -V toc-own-page=true \
+            -V 'header-left=\leftmark' \
+            -V "header-right=Version ${{ steps.meta.outputs.version }}" \
+            -V "footer-center=EmbeddedOS Press — embeddedos-org.github.io" \
             -V colorlinks=true \
             -V linkcolor="[HTML]{1a73e8}" \
             -V urlcolor="[HTML]{1a73e8}" \
@@ -187,14 +196,6 @@ jobs:
               \captionsetup{font=small,labelfont=bf,format=hang}\
               \captionsetup[figure]{name=Figure}\
               \captionsetup[table]{name=Table}\
-              \usepackage{fancyhdr}\
-              \pagestyle{fancy}\
-              \fancyhead[L]{\small\leftmark}\
-              \fancyhead[R]{\small ${{ steps.meta.outputs.version }}}\
-              \fancyfoot[C]{\small EmbeddedOS Press — embeddedos-org.github.io}\
-              \fancyfoot[R]{\thepage}\
-              \renewcommand{\headrulewidth}{0.4pt}\
-              \renewcommand{\footrulewidth}{0.2pt}\
               \usepackage{graphicx}\
               \makeatletter\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}\makeatother\
               \setkeys{Gin}{width=\maxwidth,keepaspectratio}" \
