@@ -19,6 +19,12 @@
   `TokenBlacklist.revoke_all_for_user()` records was never checked. Token times are whole seconds, so
   a token issued in the same second as the change is kept for the rest of its lifetime: by default up
   to 60 minutes for an access token and 7 days for a refresh token.
+- `POST /auth/refresh` and every route that needs a login reject a token without a `jti` with 401.
+  `POST /auth/logout` could not revoke such a token, although it answered `Logged out successfully`, and
+  a refresh token without one was not single-use. Every token eDB has issued since logout revocation
+  was added carries a `jti`, so only tokens from before then are affected. The same check also
+  rejects a token whose `jti` or `sub` is not a non-empty string, or whose `iat` is not a plain
+  integer, rather than passing the claim to the blacklist query.
 - `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
