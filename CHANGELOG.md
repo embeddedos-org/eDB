@@ -2,16 +2,30 @@
 
 ## [Unreleased]
 
+### Added
+
+- `GET /graph/nodes` and `GraphStore.find_nodes()` take an `offset`, so nodes past the 1000-node
+  `limit` can be read. Nodes are returned in the order they were added.
+
 ### Fixed
 
 - `edb serve` reads `EDB_DB_PATH`, `EDB_API_HOST` and `EDB_API_PORT` from the environment and `.env`
   when `--db`, `--host` or `--port` is not given, and a flag that is given wins. Before, `--host` and
   `--port` always fell back to `127.0.0.1:8000`, a `.env` database path was replaced by `edb_data.db`,
   and an exported `EDB_DB_PATH` silently overrode `--db` while the startup banner showed the `--db` path.
+- `POST /auth/password` signs out every session of the user: access and refresh tokens issued before
+  the change are rejected, including the one used to make it, and the response says to log in again.
+  Before, tokens issued with the old password stayed valid until they expired, because the marker
+  `TokenBlacklist.revoke_all_for_user()` records was never checked. Token times are whole seconds, so
+  a token issued in the same second as the change is kept for the rest of its lifetime: by default up
+  to 60 minutes for an access token and 7 days for a refresh token.
 - `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
   instead of binding values to the wrong columns.
+- `GET /sql/tables/{table_name}` and `GET /admin/audit` reject a `limit` outside 1–1000, and an
+  `offset` that is negative or past SQLite's 64-bit range, with 422. A negative `limit` returned every
+  row, because SQLite reads it as "no limit", and a value past the 64-bit range failed with a 500 error.
 - `KeyValueStore.list_keys(prefix)` (and `GET /kv/keys?prefix=`, the `kv list` query) now matches the
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
@@ -21,13 +35,22 @@
   time of the read as `created_at`, a different value on every call. `update()` keeps the original
   value. An existing database gains the column on open; documents written before that report
   `created_at: null`.
+- `PUT /kv/{key}`, `POST /docs/{collection}` and `PUT /docs/{collection}/{doc_id}` reject `NaN`,
+  `Infinity` and `-Infinity` anywhere in the value or document with 422. Python's JSON parser accepts
+  them although they are not valid JSON, so they were stored as invalid JSON and read back as `null`.
 - `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
   so the field was stored as the word `None`: a search for `none` matched the document and its result
   reported the field as `"None"` instead of `""`.
+- `GraphStore.add_node()` for an existing `node_id` updates the node in place. It used
+  `INSERT OR REPLACE`, which gave the node a new rowid and moved it to the end of `find_nodes()`, so a
+  client paging through it could skip one node and see another twice.
 - `RelationalStore.create_table()` (and `POST /sql/tables`, the `sql create_table` query) now writes
   `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
   without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
   accepted; any other default is rejected with `ValueError` before the table is created.
+- `edb backup` now refuses a `--db` path that does not exist: it prints `No database at <path>` and
+  exits 1. It used to open the path with `Database()`, which created a new empty database there, back
+  that up to `--dest` and report `Backup created` with exit status 0.
 - `RelationalStore.select()`, `update()` and `delete()` (and the `/sql` table routes and `sql` queries
   that use them) now match a `None` value in `where` against `NULL`. They wrote `col = ?` with a
   `None` parameter, which is never true in SQL, so `where={"age": None}` matched no rows. A `None`
@@ -35,6 +58,15 @@
 - `edb shell` prints the column header and `(0 rows)` for a query that matches no rows, and
   `OK (affected: 0)` for statements such as `CREATE TABLE`. Both printed `OK (affected: -1)`, sqlite3's
   rowcount for statements it does not count.
+- `Database(":memory:")` is one database shared by every thread that uses it. Each thread got its own
+  empty database, so data written in one thread was missing in another (`no such table`). This needs
+  SQLite 3.36 or newer; with an older SQLite, opening `:memory:` raises `RuntimeError` saying so. It has
+  no WAL, so while one thread has a write transaction open, a reader in another thread waits for it and
+  raises `database is locked` after 5 seconds. The database belongs to one process: a child created
+  with `os.fork()` gets a copy, not a shared database.
+- `StorageEngine.close()` (and `Database.close()`) closes the connections of every thread, not only
+  the calling thread's. A thread that uses the engine afterwards opens a new connection; for
+  `:memory:` that is a new, empty database.
 
 ### Changed
 

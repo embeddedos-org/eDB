@@ -199,7 +199,15 @@ def _cmd_shell(args: argparse.Namespace) -> None:
 
 
 def _cmd_backup(args: argparse.Namespace) -> None:
+    import os
+
     from edb.core.database import Database
+
+    # Database() creates a missing file, so a mistyped --db would otherwise
+    # leave a new empty database there and "back up" that instead.
+    if not os.path.isfile(args.db):
+        print(f"❌ No database at {args.db}; nothing was backed up.")
+        raise SystemExit(1)
 
     db = Database(args.db)
     db.engine.backup(args.dest)
