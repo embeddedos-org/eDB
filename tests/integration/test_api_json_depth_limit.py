@@ -43,6 +43,24 @@ def test_document_insert_rejects_values_nested_over_100_levels(app_client, h):
     assert app_client.post("/docs/c/find", json={}, headers=h).json()["count"] == 0
 
 
+def test_document_depth_counts_the_enclosing_data_mapping(app_client, h):
+    # The `data` mapping is part of the stored document, so it counts toward the
+    # limit: a field value nested 100 levels sits at depth 101 and is rejected.
+    # Validating each field value separately would restart the count at 0 and
+    # let a document nest one level deeper than a KV value.
+    resp = app_client.post("/docs/c", json={"data": {"x": _nested(100)}}, headers=h)
+    assert resp.status_code == 422
+    assert app_client.post("/docs/c/find", json={}, headers=h).json()["count"] == 0
+
+
+def test_document_accepts_value_at_the_depth_limit(app_client, h):
+    value = _nested(99)
+    assert app_client.post("/docs/c", json={"data": {"x": value}}, headers=h).status_code == 201
+    found = app_client.post("/docs/c/find", json={}, headers=h).json()
+    assert found["count"] == 1
+    assert found["documents"][0]["data"]["x"] == value
+
+
 def test_very_deep_value_returns_422_not_500(app_client, h):
     # ~500 levels: the rejected input is echoed in the 422 body, and encoding
     # that echo used to recurse past the limit and turn the 422 into a 500.

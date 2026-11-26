@@ -42,3 +42,10 @@ def _reject_non_finite(value: Any) -> Any:
 
 # Any JSON value, with NaN and Infinity rejected at any depth.
 FiniteJSON = Annotated[Any, AfterValidator(_reject_non_finite)]
+
+# A whole JSON object, validated as one value so the enclosing mapping counts
+# toward the depth limit. Annotating the *values* of a mapping instead
+# (dict[str, FiniteJSON]) restarts the count at 0 for each field and ignores
+# the mapping holding them, so such a request could nest one level deeper than
+# a bare FiniteJSON value before being rejected.
+FiniteJSONObject = Annotated[dict[str, Any], AfterValidator(_reject_non_finite)]
