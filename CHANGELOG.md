@@ -30,6 +30,11 @@
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
   now a key range (`key >= prefix AND key < next`), which also uses the key index.
+- `DocumentStore` now stores each document's `created_at`. It was never saved, so `find()`,
+  `find_by_id()`, `update()`, `GET /docs/{collection}/{doc_id}` and the document queries reported the
+  time of the read as `created_at`, a different value on every call. `update()` keeps the original
+  value. An existing database gains the column on open; documents written before that report
+  `created_at: null`.
 - `PUT /kv/{key}`, `POST /docs/{collection}` and `PUT /docs/{collection}/{doc_id}` reject `NaN`,
   `Infinity` and `-Infinity` anywhere in the value or document with 422. Python's JSON parser accepts
   them although they are not valid JSON, so they were stored as invalid JSON and read back as `null`.

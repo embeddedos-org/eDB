@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import time as _time
 import uuid
 from collections.abc import Callable
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS _documents (
     doc_id     TEXT NOT NULL,
     collection TEXT NOT NULL,
     data       TEXT NOT NULL,
+    created_at REAL,
     PRIMARY KEY (doc_id, collection)
 );
 CREATE INDEX IF NOT EXISTS idx_doc_coll ON _documents(collection);
@@ -30,7 +32,8 @@ class Document:
     collection: str
     data: dict[str, Any] = field(default_factory=dict)
 
-    created_at: float = field(default_factory=_time.time)
+    # None only for rows written before created_at was stored.
+    created_at: float | None = field(default_factory=_time.time)
 
     def model_dump(self, mode: str = 'python') -> dict:
         return {'id': self.id, 'collection': self.collection, 'data': self.data, 'created_at': self.created_at}
@@ -43,7 +46,25 @@ class DocumentStore:
             s = stmt.strip()
             if s:
                 self._e.execute(s)
+        # Databases created before created_at was stored lack the column.
+        cols = {r["name"] for r in self._e.fetchall("PRAGMA table_info(_documents)")}
+        if "created_at" not in cols:
+            try:
+                self._e.execute("ALTER TABLE _documents ADD COLUMN created_at REAL")
+            except sqlite3.OperationalError:
+                # Another process may add the column between the PRAGMA above and
+                # this ALTER, which fails as a duplicate column. Opening the store
+                # must not depend on winning that race, so re-read the layout and
+                # only re-raise if the column really is still missing.
+                cols = {r["name"] for r in self._e.fetchall("PRAGMA table_info(_documents)")}
+                if "created_at" not in cols:
+                    raise
         self._e.commit()
+
+    @staticmethod
+    def _to_doc(row: sqlite3.Row, collection: str) -> Document:
+        return Document(id=row["doc_id"], collection=collection,
+                        data=json.loads(row["data"]), created_at=row["created_at"])
 
     def create_collection(self, name: str) -> None:
         self._e.execute(
@@ -58,16 +79,18 @@ class DocumentStore:
     def insert(self, collection: str, data: dict[str, Any],
                doc_id: str | None = None) -> Document:
         did = doc_id or str(uuid.uuid4())
+        now = _time.time()
         # Auto-create collection
         self._e.execute(
             "INSERT OR IGNORE INTO _doc_collections (name) VALUES (?)", (collection,)
         )
         self._e.execute(
-            "INSERT OR REPLACE INTO _documents (doc_id, collection, data) VALUES (?, ?, ?)",
-            (did, collection, json.dumps(data)),
+            "INSERT OR REPLACE INTO _documents (doc_id, collection, data, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (did, collection, json.dumps(data), now),
         )
         self._e.commit()
-        return Document(id=did, collection=collection, data=data)
+        return Document(id=did, collection=collection, data=data, created_at=now)
 
     def insert_many(self, collection: str, docs: list[dict[str, Any]]) -> list[Document]:
         return [self.insert(collection, d) for d in docs]
@@ -79,8 +102,7 @@ class DocumentStore:
         )
         if row is None:
             return None
-        return Document(id=row["doc_id"], collection=collection,
-                        data=json.loads(row["data"]))
+        return self._to_doc(row, collection)
 
     def find(self, collection: str, filter_dict: dict[str, Any] | None = None,
              filter_fn: Callable[[dict], bool] | None = None,
@@ -92,8 +114,7 @@ class DocumentStore:
         rows = self._e.fetchall(
             "SELECT * FROM _documents WHERE collection = ?", (collection,)
         )
-        docs = [Document(id=r["doc_id"], collection=collection,
-                         data=json.loads(r["data"])) for r in rows]
+        docs = [self._to_doc(r, collection) for r in rows]
         if filter_dict:
             docs = [d for d in docs
                     if all(d.data.get(k) == v for k, v in filter_dict.items())]
@@ -116,7 +137,8 @@ class DocumentStore:
             (json.dumps(new_data), collection, doc_id),
         )
         self._e.commit()
-        return Document(id=doc_id, collection=collection, data=new_data)
+        return Document(id=doc_id, collection=collection, data=new_data,
+                        created_at=existing.created_at)
 
     def delete(self, collection: str, doc_id: str) -> bool:
         cur = self._e.execute(
