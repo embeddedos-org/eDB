@@ -145,6 +145,10 @@ jobs:
             CITE_ARGS="--citeproc --bibliography=references.bib"
           fi
 
+          # Every -V value is pasted into the LaTeX preamble verbatim, so a
+          # LaTeX special character in one has to be escaped here. A bare "&"
+          # in the author name is an alignment tab and aborts xelatex with
+          # "! Misplaced alignment tab character &."
           # Headers and footers go through Eisvogel's own header-*/footer-*
           # variables, NOT fancyhdr. With book=true the template builds on
           # scrbook and loads scrlayer-scrpage, which defines \chead, so adding
@@ -169,7 +173,7 @@ jobs:
             -V page-background-color="ffffff" \
             -V "title=${{ steps.meta.outputs.title }}" \
             -V "subtitle=Version ${{ steps.meta.outputs.version }}" \
-            -V "author=Srikanth Patchava & EmbeddedOS Contributors" \
+            -V "author=Srikanth Patchava \& EmbeddedOS Contributors" \
             -V "date=$(date +'%B %Y')" \
             -V toc=true \
             -V toc-depth=3 \
