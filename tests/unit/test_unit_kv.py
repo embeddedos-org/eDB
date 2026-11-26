@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from edb.core.engine import StorageEngine
@@ -294,19 +296,52 @@ class _WritesBeforeDelete:
         return self._real.commit()
 
 
-def test_get_keeps_a_value_written_after_it_read_the_expired_one(kv_store):
-    kv_store.set("k", "old", ttl=-1)
-    real = kv_store._e
-    kv_store._e = _WritesBeforeDelete(real, "k")
-    assert kv_store.get("k") is None
-    kv_store._e = real
-    assert kv_store.get("k") == "new"
+def test_get_returns_a_value_written_after_it_read_the_expired_one():
+    engine = StorageEngine(":memory:")
+    store = KeyValueStore(engine)
+    store.set("k", "old", ttl=-1)
+
+    # Same data, but this store's engine slips a write in between the read of
+    # the expired row and the delete that follows it.
+    racing = KeyValueStore(_WritesBeforeDelete(engine, "k"))
+
+    # The delete must leave the replacement alone, and the caller must be told
+    # about it: answering None here reports the key as holding null while
+    # exists() says the key is there.
+    assert racing.get("k") == "new"
+    assert store.get("k") == "new"
+    assert store.exists("k") is True
 
 
-def test_get_many_keeps_a_value_written_after_it_read_the_expired_one(kv_store):
-    kv_store.set("k", "old", ttl=-1)
-    real = kv_store._e
-    kv_store._e = _WritesBeforeDelete(real, "k")
-    assert kv_store.get_many(["k"]) == {}
-    kv_store._e = real
-    assert kv_store.get("k") == "new"
+def test_get_many_keeps_a_value_written_after_it_read_the_expired_one():
+    engine = StorageEngine(":memory:")
+    store = KeyValueStore(engine)
+    store.set("k", "old", ttl=-1)
+
+    racing = KeyValueStore(_WritesBeforeDelete(engine, "k"))
+
+    # get_many() answers from its own snapshot, so the key stays absent from
+    # this result; the point is that the cleanup does not destroy the new value.
+    assert racing.get_many(["k"]) == {}
+    assert store.get("k") == "new"
+
+
+def test_get_many_deletes_expired_keys_that_fill_sqlites_bind_limit():
+    engine = StorageEngine(":memory:")
+    limit = 50
+    engine.conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, limit)
+    store = KeyValueStore(engine)
+
+    # Exactly as many keys as the SELECT in get_many() is allowed to bind. The
+    # cleanup DELETE binds `now` on top of the keys, so naming them all in one
+    # statement is one variable too many: SQLite raises, the handler rolls back
+    # and swallows it, and every expired row stays in the table for good.
+    keys = [f"k{i}" for i in range(limit)]
+    store.set_many({k: "v" for k in keys}, ttl=-1)
+    assert engine.execute("SELECT COUNT(*) AS c FROM _kv").fetchone()["c"] == limit
+
+    assert store.get_many(keys) == {}
+
+    # count() and list_keys() both hide expired rows, so ask the table itself.
+    assert engine.execute("SELECT COUNT(*) AS c FROM _kv").fetchone()["c"] == 0
+    assert store.prune_expired() == 0
