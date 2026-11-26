@@ -31,7 +31,9 @@
   `POST /graph/edges` reject `NaN`, `Infinity` and `-Infinity` anywhere in the written data or
   properties with 422, like the KV and document routes since #219. They were stored and read back as
   `null`. Core-layer writers (library/CLI callers) still accept them; that is the design question in
-  #223 step 2, not this change.
+  #223 step 2, not this change. The check walks the value iteratively: recursing once per nesting
+  level raised `RecursionError` inside request-model validation about a thousand levels down, which
+  reached the caller as a 500, while the body parser itself accepts about 58,000 levels.
 - `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
   so the field was stored as the word `None`: a search for `none` matched the document and its result
   reported the field as `"None"` instead of `""`.

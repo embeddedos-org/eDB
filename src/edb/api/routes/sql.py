@@ -13,8 +13,8 @@ from edb.api.dependencies import (
     get_app_state,
     require_permission,
 )
-from edb.auth.models import Permission
 from edb.api.validation import FiniteJSON
+from edb.auth.models import Permission
 
 router = APIRouter()
 
