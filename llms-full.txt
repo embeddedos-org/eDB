@@ -297,6 +297,22 @@ Refresh an access token.
 ### `GET /auth/me`
 Get current user profile. Requires auth.
 
+### `POST /auth/password`
+Change password. Requires auth.
+
+**Body:** `{"current_password": "...", "new_password": "..."}`
+
+A wrong current password returns 400. A new password shorter than 8 or longer than 128 characters is rejected by request validation and returns 422; one that passes the length check but breaks the strength rules returns 400.
+
+Changing the password signs out every session of the user. The handler records a user-wide revocation cutoff, so access and refresh tokens issued before the change are rejected with 401 — including the one that made the call — and the response says to log in again. Token times are whole seconds, so a token issued in the same second as the change is kept for the rest of its lifetime: by default up to 60 minutes for an access token and 7 days for a refresh token.
+
+### `POST /auth/logout`
+Sign out. Requires auth.
+
+**Body:** `{"refresh_token": "..."}` (optional)
+
+Revokes the access token used for the call and, if given, that refresh token. Revocation works by blacklisting the token's `jti`. A token without a `jti` cannot be blacklisted, so rather than letting it through unrevokable, every route that needs a login rejects it with 401; the same applies to a token whose `jti` or `sub` is not a non-empty string, or whose `iat` is not a plain integer. Every token eDB has issued since logout revocation was added carries a `jti`, so only tokens minted before then are affected.
+
 ---
 
 ## SQL (Relational)
@@ -320,7 +336,7 @@ Create a table.
 List all tables.
 
 ### `GET /sql/tables/{table_name}?limit=100&offset=0`
-Get table data.
+Get table data. `limit`: integer, 1 to 1000 (default 100); `offset`: integer, 0 to 9223372036854775807 (2**63 - 1), default 0. Out-of-range values return 422.
 
 ### `POST /sql/tables/{table_name}/select`
 Query with filters.
@@ -365,6 +381,8 @@ List all collections.
 ### `POST /docs/{collection}`
 Insert a document.
 
+Values must be valid JSON; `NaN` and infinities, at any depth, return 422.
+
 **Body:** `{"data": {"name": "Alice", "age": 30}, "doc_id": "optional-custom-id"}`
 
 ### `POST /docs/{collection}/find`
@@ -377,6 +395,8 @@ Get document by ID.
 
 ### `PUT /docs/{collection}/{doc_id}`
 Update document.
+
+Values must be valid JSON; `NaN` and infinities, at any depth, return 422.
 
 **Body:** `{"data": {"age": 31}, "merge": true}`
 
@@ -395,6 +415,8 @@ Get value.
 
 ### `PUT /kv/{key}`
 Set value.
+
+Values must be valid JSON; `NaN` and infinities, at any depth, return 422.
 
 **Body:** `{"value": {"theme": "dark"}, "ttl": 3600}`
 
@@ -440,8 +462,8 @@ Update user role.
 ### `DELETE /admin/users/{user_id}`
 Deactivate a user.
 
-### `GET /admin/audit?event_type=auth&limit=100`
-Get audit logs.
+### `GET /admin/audit?event_type=auth&limit=100&offset=0`
+Get audit logs. `limit`: integer, 1 to 1000 (default 100); `offset`: integer, 0 to 9223372036854775807 (2**63 - 1), default 0. Out-of-range values return 422.
 
 ### `GET /admin/audit/verify`
 Verify audit log hash chain integrity.

@@ -251,9 +251,9 @@ eDB/
         ▼              ▼             │ (self-contained)
 ┌───────────────────────────┐        │
 │     FastAPI REST API       │        │
-│  /api/sql  /api/docs       │        │
-│  /api/kv   /api/admin      │        │
-│  /api/ebot /api/auth       │        │
+│  /sql  /docs       │        │
+│  /kv   /admin      │        │
+│  /ebot /auth       │        │
 └───────────┬───────────────┘        │
             │                        │
 ┌───────────▼───────────────┐        │
@@ -715,14 +715,17 @@ eDB provides a full REST API via FastAPI with auto-generated OpenAPI documentati
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/auth/login` | Login and get JWT tokens |
-| POST | `/api/auth/refresh` | Refresh access token |
-| POST | `/api/auth/logout` | Invalidate refresh token |
+| POST | `/auth/login` | Login and get JWT tokens |
+| POST | `/auth/refresh` | Refresh access token |
+| POST | `/auth/register` | Register a new user |
+| GET | `/auth/me` | Current user profile |
+| POST | `/auth/password` | Change password; signs out every session — tokens issued earlier are rejected, log in again |
+| POST | `/auth/logout` | Revoke the access token used for the call and, if given in the body, that refresh token |
 
 ### Login
 
 ```bash
-curl -X POST http://localhost:8000/api/auth/login \
+curl -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "your-password"}'
 ```
@@ -742,65 +745,71 @@ Response:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/sql/tables` | List tables |
-| POST | `/api/sql/tables` | Create table |
-| DELETE | `/api/sql/tables/{name}` | Drop table |
-| GET | `/api/sql/tables/{name}` | Get table data |
-| POST | `/api/sql/tables/{name}/rows` | Insert row |
-| PUT | `/api/sql/tables/{name}/rows/{id}` | Update row |
-| DELETE | `/api/sql/tables/{name}/rows/{id}` | Delete row |
-| POST | `/api/sql/query` | Execute SQL query |
+| GET | `/sql/tables` | List tables |
+| POST | `/sql/tables` | Create table |
+| GET | `/sql/tables/{name}` | Get table data |
+| POST | `/sql/tables/{name}/select` | Query with filters |
+| POST | `/sql/tables/{name}/insert` | Insert row |
+| PUT | `/sql/tables/{name}/update` | Update rows matching `where` |
+| DELETE | `/sql/tables/{name}/delete` | Delete rows matching `where` |
+| POST | `/sql/execute` | Execute raw SQL |
 
 ### Execute Query
 
 ```bash
-curl -X POST http://localhost:8000/api/sql/query \
+curl -X POST http://localhost:8000/sql/execute \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query": "SELECT * FROM users WHERE age > 21"}'
+  -d '{"sql": "SELECT * FROM users WHERE age > 21"}'
 ```
 
 ## 10.4 Document Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/docs/collections` | List collections |
-| POST | `/api/docs/{collection}` | Insert document |
-| GET | `/api/docs/{collection}` | Find documents |
-| GET | `/api/docs/{collection}/{id}` | Get document by ID |
-| PUT | `/api/docs/{collection}/{id}` | Update document |
-| DELETE | `/api/docs/{collection}/{id}` | Delete document |
+| GET | `/docs/collections` | List collections |
+| POST | `/docs/{collection}` | Insert document |
+| POST | `/docs/{collection}/find` | Find documents |
+| GET | `/docs/{collection}/{id}` | Get document by ID |
+| PUT | `/docs/{collection}/{id}` | Update document |
+| DELETE | `/docs/{collection}/{id}` | Delete document |
 
 ## 10.5 Key-Value Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/kv/{key}` | Get value |
-| PUT | `/api/kv/{key}` | Set value |
-| DELETE | `/api/kv/{key}` | Delete key |
-| GET | `/api/kv?prefix=session:` | List keys by prefix |
+| GET | `/kv/keys` | List keys (optional `?prefix=session:`) |
+| GET | `/kv/{key}` | Get value — except `keys`, see below |
+| PUT | `/kv/{key}` | Set value |
+| DELETE | `/kv/{key}` | Delete key |
+
+`keys` is a reserved path segment. `GET /kv/keys` is matched by the list route
+above, which is registered first, so a value stored under the key `keys` can be
+written by `PUT /kv/keys` and deleted by `DELETE /kv/keys` but cannot be read
+back through `GET`. Avoid `keys` as a key name.
 
 ## 10.6 Admin Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/admin/audit` | View audit logs |
+| GET | `/admin/audit/verify` | Verify audit hash chain |
 | GET | `/admin/users` | List users |
-| POST | `/admin/users` | Create user |
-| DELETE | `/admin/users/{id}` | Delete user |
+| PUT | `/admin/users/{id}/role` | Update user role |
+| DELETE | `/admin/users/{id}` | Deactivate user |
 | GET | `/admin/stats` | Database statistics |
 
 ## 10.7 eBot Endpoint
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/ebot/query` | Natural language query |
+| POST | `/ebot/query` | Natural language query |
 
 ```bash
-curl -X POST http://localhost:8000/api/ebot/query \
+curl -X POST http://localhost:8000/ebot/query \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"question": "Show me all users who signed up last month"}'
+  -d '{"text": "Show me all users who signed up last month"}'
 ```
 
 ---
@@ -823,27 +832,32 @@ eDB uses JSON Web Tokens for authentication with access and refresh token pairs.
 ```
 Client                              Server
   │                                    │
-  │  POST /api/auth/login              │
+  │  POST /auth/login              │
   │  {username, password}              │
   │ ──────────────────────────────────►│
   │                                    │  Verify credentials
   │  {access_token, refresh_token}     │  Generate JWT pair
   │ ◄──────────────────────────────────│
   │                                    │
-  │  GET /api/sql/tables               │
+  │  GET /sql/tables               │
   │  Authorization: Bearer <access>    │
   │ ──────────────────────────────────►│
   │                                    │  Validate JWT
   │  {tables: [...]}                   │  Check permissions
   │ ◄──────────────────────────────────│
   │                                    │
-  │  POST /api/auth/refresh            │
+  │  POST /auth/refresh            │
   │  {refresh_token}                   │
   │ ──────────────────────────────────►│
   │                                    │  Validate refresh
-  │  {access_token (new)}              │  Issue new access
+  │  {access_token, refresh_token}     │  Issue a new pair,
+  │          (both new)                │  revoke the old refresh
   │ ◄──────────────────────────────────│
 ```
+
+`/auth/refresh` rotates the refresh token: it returns a new `access_token` and a
+new `refresh_token`, and the refresh token sent in is revoked, so each one is
+good for a single use. Store the new refresh token in place of the old one.
 
 ## 11.2 Role-Based Access Control (RBAC)
 
@@ -1002,7 +1016,7 @@ logs = audit.query(
 # View audit logs via REST API
 curl -X GET http://localhost:8000/admin/audit \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -G -d "user=admin" -d "limit=50"
+  -G -d "event_type=auth" -d "limit=50"
 ```
 
 ---
@@ -1272,46 +1286,54 @@ class EDBClient {
         this.token = token;
     }
 
+    // Admin only: /sql/execute requires the db:raw_sql permission, which only
+    // the admin role holds, so a read_only or read_write token gets 403 here.
+    // Those roles have db:read and can use the table routes instead:
+    // GET /sql/tables/{table} or POST /sql/tables/{table}/select.
     async query(sql) {
-        const response = await fetch(`${this.baseUrl}/api/sql/query`, {
+        const response = await fetch(`${this.baseUrl}/sql/execute`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${this.token}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ query: sql }),
+            body: JSON.stringify({ sql }),
         });
         return response.json();
     }
 
     async getTables() {
-        const response = await fetch(`${this.baseUrl}/api/sql/tables`, {
+        const response = await fetch(`${this.baseUrl}/sql/tables`, {
             headers: { 'Authorization': `Bearer ${this.token}` },
         });
         return response.json();
     }
 
     async insertDoc(collection, document) {
-        const response = await fetch(`${this.baseUrl}/api/docs/${collection}`, {
+        const response = await fetch(`${this.baseUrl}/docs/${collection}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${this.token}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(document),
+            // POST /docs/{collection} takes {"data": {...}}; sending the
+            // document bare is rejected with 422.
+            body: JSON.stringify({ data: document }),
         });
         return response.json();
     }
 
+    // Keys go in the path, so encode them: an unencoded "a?b" would be sent
+    // as /kv/a?b and act on the key "a" instead.
     async kvGet(key) {
-        const response = await fetch(`${this.baseUrl}/api/kv/${key}`, {
+        const response = await fetch(`${this.baseUrl}/kv/${encodeURIComponent(key)}`, {
             headers: { 'Authorization': `Bearer ${this.token}` },
         });
         return response.json();
     }
 
     async kvSet(key, value, ttl = null) {
-        const response = await fetch(`${this.baseUrl}/api/kv/${key}`, {
+        const response = await fetch(`${this.baseUrl}/kv/${encodeURIComponent(key)}`, {
             method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${this.token}`,

@@ -38,7 +38,9 @@ graph TB
 ## Components
 
 ### Storage Engine (`edb.core.engine`)
-The lowest-level component. Manages the SQLite connection with WAL mode, thread safety, and parameterized query execution.
+The lowest-level component. Manages the SQLite connections (WAL mode for file databases), thread safety, and parameterized query execution.
+
+Connection model: each thread gets its own connection, for files and for `:memory:`. A `:memory:` database is a named in-memory database (SQLite's `memdb` VFS) shared by all of that engine's connections, so it is the same database in every thread, with per-connection transactions. Unlike a file, it has no WAL: while one connection has a write transaction open, the others wait for it, even to read, and raise `database is locked` after the configured 5 s busy timeout. Five seconds is the wait SQLite is asked for, not one it always takes: when honouring the wait could deadlock — a connection holding a read transaction trying to write while another already holds the write reservation — SQLite skips the busy handler and returns `database is locked` straight away. a file database (WAL) lets readers through. The shared `:memory:` database lives in one process's memory: a child created with `os.fork()` gets a copy, not a shared database, so it must open its own `Database`. `close()` closes every connection the engine has open, in all threads; it should be called once no other thread is using the engine, and the next call in any thread opens a new connection (for `:memory:`, a new, empty database).
 
 ### Relational Store (`edb.core.relational`)
 SQL CRUD operations (CREATE TABLE, INSERT, SELECT, UPDATE, DELETE) with parameterized queries to prevent injection.
