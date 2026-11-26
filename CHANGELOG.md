@@ -53,6 +53,9 @@
 - `GraphStore.add_node()` for an existing `node_id` updates the node in place. It used
   `INSERT OR REPLACE`, which gave the node a new rowid and moved it to the end of `find_nodes()`, so a
   client paging through it could skip one node and see another twice.
+- `GET /graph/nodes?label=` no longer scans every node: `_graph_nodes` gains an index on `label`,
+  named `idx_graph_nodes_label`. The index is created on the next open of an existing database and
+  changes no results.
 - `RelationalStore.create_table()` (and `POST /sql/tables`, the `sql create_table` query) now writes
   `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
   without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
