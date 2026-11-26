@@ -71,6 +71,7 @@ class TestRetrieval:
         assert first["details"] == {"ip": "10.0.0.1"}
         assert first["ip_address"] == "10.0.0.1"
         assert len(first["entry_hash"]) == 64
+        assert first["hash_version"] == 2
 
     def test_details_round_trip_and_absence(self, audit):
         _log_three(audit)

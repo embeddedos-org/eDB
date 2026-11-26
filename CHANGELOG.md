@@ -47,7 +47,9 @@
   `ip_address` in an audit entry. Both were stored but left out of the entry's hash, so an edited
   entry was reported as intact. New entries are hashed over every stored field (hash version 2, kept
   in a new `hash_version` column); entries written before keep the old hash and still verify, and an
-  existing log gets the column when it is opened.
+  existing log gets the column when it is opened. `get_logs()` and `GET /admin/audit` return each
+  entry's `hash_version`. An eDB older than this change reports a log as tampered once a version 2
+  entry is in it, so upgrade every copy that verifies a shared log before one that writes to it.
 - `edb backup` now refuses a `--db` path that does not exist: it prints `No database at <path>` and
   exits 1. It used to open the path with `Database()`, which created a new empty database there, back
   that up to `--dest` and report `Backup created` with exit status 0.

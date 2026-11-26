@@ -20,6 +20,8 @@ AUDIT_TABLE = "_edb_audit_log"
 # How entry_hash is computed; stored per entry so older logs still verify.
 # 1: "|"-joined text without username and ip_address (logs written before 2).
 # 2: a JSON array of every stored field, so none can be changed unnoticed.
+# Accepting version 1 entries anywhere is safe only while no version is keyed:
+# a keyed version (#236) must reject version 1 after it, or relabelling skips the key.
 HASH_VERSION = 2
 _HASHED_FIELDS = (
     "timestamp",
@@ -212,4 +214,5 @@ class AuditLogger:
             "details": json.loads(row["details"]) if row["details"] else None,
             "ip_address": row["ip_address"],
             "entry_hash": row["entry_hash"],
+            "hash_version": row["hash_version"],
         }
