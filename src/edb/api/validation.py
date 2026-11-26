@@ -7,7 +7,6 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator
 
-
 # A value nested deeper than this is rejected with 422 (eDB#220). Past about
 # 300 levels FastAPI/Pydantic fails serializing the response, so the write
 # succeeded and every response containing the value returned 500 — a value

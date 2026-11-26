@@ -4,6 +4,7 @@ password changes."""
 from datetime import UTC, datetime, timedelta
 
 import jwt
+import pytest
 
 ADMIN = {"username": "admin", "password": "Admin@12345678!"}
 
@@ -114,3 +115,78 @@ def test_refresh_token_without_a_subject_returns_401(app_client):
     claims = {"type": "refresh", "jti": "no-sub", "iat": now, "exp": now + timedelta(minutes=5)}
     token = jwt.encode(claims, state.config.jwt_secret, algorithm="HS256")
     assert app_client.post("/auth/refresh", json={"refresh_token": token}).status_code == 401
+
+
+def _without_jti(client, token):
+    """The same token, re-signed without its jti (as tokens were before jti existed)."""
+    secret = client.app.state.edb.config.jwt_secret
+    claims = jwt.decode(token, secret, algorithms=["HS256"])
+    claims.pop("jti")
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
+def test_access_token_without_jti_returns_401(app_client):
+    token = _without_jti(app_client, _login(app_client)["access_token"])
+    assert app_client.get("/auth/me", headers=_auth(token)).status_code == 401
+
+
+def test_refresh_token_without_jti_returns_401(app_client):
+    # It could not be retired after use, so it would mint access tokens forever.
+    token = _without_jti(app_client, _login(app_client)["refresh_token"])
+    assert app_client.post("/auth/refresh", json={"refresh_token": token}).status_code == 401
+
+
+def _reclaim(client, token, **claims):
+    """The same token, re-signed with some claims replaced or removed (value None)."""
+    secret = client.app.state.edb.config.jwt_secret
+    payload = jwt.decode(token, secret, algorithms=["HS256"])
+    for name, value in claims.items():
+        if value is None:
+            payload.pop(name, None)
+        else:
+            payload[name] = value
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+# A signed token whose jti, sub or iat is not the type the blacklist can use.
+# Nothing in JWT or JSON constrains these claims, and the blacklist binds jti
+# and sub as SQLite parameters and compares iat as an integer, so these used to
+# raise out of the query and reach the client as a 500 instead of a 401.
+MALFORMED_CLAIMS = [
+    {"jti": ["a", "b"]},
+    {"jti": {"a": 1}},
+    {"jti": 12345},
+    {"jti": ""},
+    {"sub": ["a"]},
+    {"sub": {"a": 1}},
+    {"sub": 7},
+    {"iat": "not-a-number"},
+    {"iat": ["a"]},
+    {"iat": True},
+]
+
+
+@pytest.mark.parametrize("claims", MALFORMED_CLAIMS)
+def test_access_token_with_malformed_claims_returns_401(app_client, claims):
+    token = _reclaim(app_client, _login(app_client)["access_token"], **claims)
+    assert app_client.get("/auth/me", headers=_auth(token)).status_code == 401
+
+
+@pytest.mark.parametrize("claims", MALFORMED_CLAIMS)
+def test_refresh_token_with_malformed_claims_returns_401(app_client, claims):
+    token = _reclaim(app_client, _login(app_client)["refresh_token"], **claims)
+    assert app_client.post("/auth/refresh", json={"refresh_token": token}).status_code == 401
+
+
+def test_logout_with_a_malformed_jti_does_not_error(app_client):
+    # _revoke() must not try to blacklist a jti it cannot store.
+    tokens = _login(app_client)
+    token = _reclaim(app_client, tokens["refresh_token"], jti=["a", "b"])
+    resp = app_client.post(
+        "/auth/logout",
+        json={"refresh_token": token},
+        headers=_auth(tokens["access_token"]),
+    )
+    assert resp.status_code == 200
+    # The real access token used for the logout is still revoked.
+    assert app_client.get("/auth/me", headers=_auth(tokens["access_token"])).status_code == 401

@@ -24,6 +24,32 @@ logger = logging.getLogger("edb.api")
 security_scheme = HTTPBearer(auto_error=False)
 
 
+def revocation_keys(payload: dict[str, Any] | None) -> tuple[str, str, int] | None:
+    """The ``(jti, sub, iat)`` a verified token revocation can be checked with.
+
+    Returns None when the payload cannot be checked against the blacklist, which
+    callers must treat as 401. JSON puts no type constraint on these claims, and
+    the blacklist binds ``jti`` and ``sub`` as SQLite parameters and compares
+    ``iat`` as an integer, so a token carrying a list, an object or a string
+    there raised out of the query and reached the client as a 500 rather than a
+    401. ``bool`` is rejected for ``iat`` because it is an ``int`` subclass.
+    """
+    if payload is None:
+        return None
+    jti = payload.get("jti")
+    sub = payload.get("sub")
+    iat = payload.get("iat", 0)
+    # A token without a jti can be neither revoked by logout nor made
+    # single-use; every token eDB issues now carries one.
+    if not isinstance(jti, str) or not jti:
+        return None
+    if not isinstance(sub, str) or not sub:
+        return None
+    if isinstance(iat, bool) or not isinstance(iat, int):
+        return None
+    return jti, sub, iat
+
+
 class AppState:
     """Shared application state holding all service instances."""
 
@@ -77,10 +103,12 @@ async def get_current_user(
         )
 
     payload = state.jwt_handler.verify_token(credentials.credentials)
+    keys = revocation_keys(payload)
     if (
         payload is None
-        or state.token_blacklist.is_revoked(payload.get("jti", ""))
-        or state.token_blacklist.is_revoked_for_user(payload.get("sub", ""), payload.get("iat", 0))
+        or keys is None
+        or state.token_blacklist.is_revoked(keys[0])
+        or state.token_blacklist.is_revoked_for_user(keys[1], keys[2])
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

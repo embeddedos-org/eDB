@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from edb.api.dependencies import AppState, get_app_state, get_current_user
+from edb.api.dependencies import AppState, get_app_state, get_current_user, revocation_keys
 from edb.auth.models import (
     LoginRequest,
     LogoutRequest,
@@ -95,11 +95,15 @@ def refresh_token(
     token = refresh_token.get("refresh_token", "")
     payload = state.jwt_handler.verify_token(token)
 
+    # Without a usable jti the token could not be retired below, so it would
+    # stay reusable; every token eDB issues now carries one.
+    keys = revocation_keys(payload)
     if (
         payload is None
         or payload.get("type") != "refresh"
-        or state.token_blacklist.is_revoked(payload.get("jti", ""))
-        or state.token_blacklist.is_revoked_for_user(payload.get("sub", ""), payload.get("iat", 0))
+        or keys is None
+        or state.token_blacklist.is_revoked(keys[0])
+        or state.token_blacklist.is_revoked_for_user(keys[1], keys[2])
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -185,10 +189,12 @@ def logout(
 
 def _revoke(state: AppState, payload: dict[str, Any]) -> None:
     """Blacklist a verified token until it would have expired anyway.
-    Tokens issued before jti existed cannot be revoked; they simply expire.
+    A token without a jti cannot be blacklisted, but get_current_user and
+    /auth/refresh reject such tokens, so it has no session left to end.
     """
-    jti = payload.get("jti")
-    if not jti:
+    keys = revocation_keys(payload)
+    if keys is None:
         return
+    jti, sub, _ = keys
     expires_at = datetime.fromtimestamp(payload["exp"], UTC).isoformat()
-    state.token_blacklist.revoke(jti, user_id=payload.get("sub"), expires_at=expires_at)
+    state.token_blacklist.revoke(jti, user_id=sub, expires_at=expires_at)

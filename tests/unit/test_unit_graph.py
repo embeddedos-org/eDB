@@ -169,5 +169,50 @@ class TestGraphTraversal(unittest.TestCase):
         self.assertIsNone(self.g.shortest_path("a", "z"))
 
 
+
+
+class TestGraphNodeLabelIndex(unittest.TestCase):
+    # eDB#218: _graph_nodes had no index on label, so GET /graph/nodes?label=
+    # scanned every node (EXPLAIN QUERY PLAN reported SCAN _graph_nodes).
+
+    def setUp(self):
+        self.g = GraphStore(StorageEngine(":memory:"))
+
+    def test_label_index_exists_on_the_right_table_and_column(self):
+        rows = self.g._e.fetchall(
+            "SELECT name, tbl_name FROM sqlite_master "
+            "WHERE type = 'index' AND name = 'idx_graph_nodes_label'"
+        )
+        self.assertEqual(
+            [(row["name"], row["tbl_name"]) for row in rows],
+            [("idx_graph_nodes_label", "_graph_nodes")],
+        )
+        columns = self.g._e.fetchall("PRAGMA index_info('idx_graph_nodes_label')")
+        self.assertEqual([row[2] for row in columns], ["label"])
+
+    def test_labelled_query_plan_uses_the_label_index(self):
+        # Unforced plan for the SQL find_nodes() actually runs: no INDEXED BY,
+        # because forcing the index would pass even if SQLite's own plan still
+        # scanned the table, which is the regression eDB#218 is about. Needs
+        # enough rows, and a selective label, for the planner to prefer it.
+        for i in range(2000):
+            self.g.add_node("Person" if i % 50 else "Rare", node_id=f"n{i}")
+        plan = self.g._e.fetchall(
+            "EXPLAIN QUERY PLAN SELECT * FROM _graph_nodes WHERE label = ? "
+            "ORDER BY rowid LIMIT ? OFFSET ?",
+            ("Rare", 100, 0),
+        )
+        details = " ".join(row[3] for row in plan)
+        self.assertIn("USING INDEX idx_graph_nodes_label", details)
+        self.assertNotIn("SCAN _graph_nodes", details)
+
+    def test_index_changes_no_results(self):
+        self.g.add_node("Person", node_id="a")
+        self.g.add_node("Person", node_id="b")
+        self.g.add_node("Place", node_id="c")
+        self.assertEqual(
+            [n["id"] for n in self.g.find_nodes("Person")], ["a", "b"]
+        )
+
 if __name__ == "__main__":
     unittest.main()
