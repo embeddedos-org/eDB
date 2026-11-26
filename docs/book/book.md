@@ -717,7 +717,9 @@ eDB provides a full REST API via FastAPI with auto-generated OpenAPI documentati
 |---|---|---|
 | POST | `/auth/login` | Login and get JWT tokens |
 | POST | `/auth/refresh` | Refresh access token |
-| POST | `/auth/password` | Change password; signs out every session, including the caller's |
+| POST | `/auth/register` | Register a new user |
+| GET | `/auth/me` | Current user profile |
+| POST | `/auth/password` | Change password; existing tokens stay valid (see #242) |
 | POST | `/auth/logout` | Revoke the access token used for the call and, if given in the body, that refresh token |
 
 ### Login
@@ -745,20 +747,20 @@ Response:
 |---|---|---|
 | GET | `/sql/tables` | List tables |
 | POST | `/sql/tables` | Create table |
-| DELETE | `/sql/tables/{name}` | Drop table |
 | GET | `/sql/tables/{name}` | Get table data |
-| POST | `/sql/tables/{name}/rows` | Insert row |
-| PUT | `/sql/tables/{name}/rows/{id}` | Update row |
-| DELETE | `/sql/tables/{name}/rows/{id}` | Delete row |
-| POST | `/sql/query` | Execute SQL query |
+| POST | `/sql/tables/{name}/select` | Query with filters |
+| POST | `/sql/tables/{name}/insert` | Insert row |
+| PUT | `/sql/tables/{name}/update` | Update rows matching `where` |
+| DELETE | `/sql/tables/{name}/delete` | Delete rows matching `where` |
+| POST | `/sql/execute` | Execute raw SQL |
 
 ### Execute Query
 
 ```bash
-curl -X POST http://localhost:8000/sql/query \
+curl -X POST http://localhost:8000/sql/execute \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query": "SELECT * FROM users WHERE age > 21"}'
+  -d '{"sql": "SELECT * FROM users WHERE age > 21"}'
 ```
 
 ## 10.4 Document Endpoints
@@ -767,7 +769,7 @@ curl -X POST http://localhost:8000/sql/query \
 |---|---|---|
 | GET | `/docs/collections` | List collections |
 | POST | `/docs/{collection}` | Insert document |
-| GET | `/docs/{collection}` | Find documents |
+| POST | `/docs/{collection}/find` | Find documents |
 | GET | `/docs/{collection}/{id}` | Get document by ID |
 | PUT | `/docs/{collection}/{id}` | Update document |
 | DELETE | `/docs/{collection}/{id}` | Delete document |
@@ -776,19 +778,20 @@ curl -X POST http://localhost:8000/sql/query \
 
 | Method | Endpoint | Description |
 |---|---|---|
+| GET | `/kv/keys` | List keys (optional `?prefix=session:`) |
 | GET | `/kv/{key}` | Get value |
 | PUT | `/kv/{key}` | Set value |
 | DELETE | `/kv/{key}` | Delete key |
-| GET | `/kv?prefix=session:` | List keys by prefix |
 
 ## 10.6 Admin Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/admin/audit` | View audit logs |
+| GET | `/admin/audit/verify` | Verify audit hash chain |
 | GET | `/admin/users` | List users |
-| POST | `/admin/users` | Create user |
-| DELETE | `/admin/users/{id}` | Delete user |
+| PUT | `/admin/users/{id}/role` | Update user role |
+| DELETE | `/admin/users/{id}` | Deactivate user |
 | GET | `/admin/stats` | Database statistics |
 
 ## 10.7 eBot Endpoint
@@ -801,7 +804,7 @@ curl -X POST http://localhost:8000/sql/query \
 curl -X POST http://localhost:8000/ebot/query \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"question": "Show me all users who signed up last month"}'
+  -d '{"text": "Show me all users who signed up last month"}'
 ```
 
 ---
@@ -1274,13 +1277,13 @@ class EDBClient {
     }
 
     async query(sql) {
-        const response = await fetch(`${this.baseUrl}/sql/query`, {
+        const response = await fetch(`${this.baseUrl}/sql/execute`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${this.token}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ query: sql }),
+            body: JSON.stringify({ sql }),
         });
         return response.json();
     }

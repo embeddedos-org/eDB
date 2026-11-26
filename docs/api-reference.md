@@ -53,14 +53,16 @@ Change password. Requires auth.
 
 **Body:** `{"current_password": "...", "new_password": "..."}`
 
-On success every session for the user is signed out, including the one that made the call; log in again with the new password. A wrong current password returns 400 and signs nobody out; a new password that breaks the strength rules returns 400.
+A wrong current password returns 400. A new password shorter than 8 or longer than 128 characters is rejected by request validation and returns 422; one that passes the length check but breaks the strength rules returns 400.
+
+Changing the password does **not** revoke tokens. Access and refresh tokens issued before the change stay valid until they expire, so other sessions remain signed in and a held refresh token can still mint new access tokens (tracked in #242). Call `POST /auth/logout` from each session, or wait out the token lifetime, to end them.
 
 ### `POST /auth/logout`
 Sign out. Requires auth.
 
 **Body:** `{"refresh_token": "..."}` (optional)
 
-Revokes the access token used for the call and, if given, that refresh token.
+Revokes the access token used for the call and, if given, that refresh token. Revocation works by blacklisting the token's `jti`, so a token minted before `jti` was issued cannot be revoked and stays usable until it expires.
 
 ---
 
@@ -85,7 +87,7 @@ Create a table.
 List all tables.
 
 ### `GET /sql/tables/{table_name}?limit=100&offset=0`
-Get table data. `limit`: integer, 1 to 1000 (default 100); `offset`: integer, 0 or more (default 0). Out-of-range values return 422.
+Get table data. `limit`: integer, 1 to 1000 (default 100); `offset`: integer, 0 to 9223372036854775807 (2**63 - 1), default 0. Out-of-range values return 422.
 
 ### `POST /sql/tables/{table_name}/select`
 Query with filters.
@@ -212,7 +214,7 @@ Update user role.
 Deactivate a user.
 
 ### `GET /admin/audit?event_type=auth&limit=100&offset=0`
-Get audit logs. `limit`: integer, 1 to 1000 (default 100); `offset`: integer, 0 or more (default 0). Out-of-range values return 422.
+Get audit logs. `limit`: integer, 1 to 1000 (default 100); `offset`: integer, 0 to 9223372036854775807 (2**63 - 1), default 0. Out-of-range values return 422.
 
 ### `GET /admin/audit/verify`
 Verify audit log hash chain integrity.
