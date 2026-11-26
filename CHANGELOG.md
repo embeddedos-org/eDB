@@ -49,6 +49,13 @@
 - `PUT /kv/{key}`, `POST /docs/{collection}` and `PUT /docs/{collection}/{doc_id}` reject `NaN`,
   `Infinity` and `-Infinity` anywhere in the value or document with 422. Python's JSON parser accepts
   them although they are not valid JSON, so they were stored as invalid JSON and read back as `null`.
+- `POST /sql/tables/{table}/insert`, `PUT /sql/tables/{table}/update`, `POST /graph/nodes` and
+  `POST /graph/edges` reject `NaN`, `Infinity` and `-Infinity` anywhere in the written data or
+  properties with 422, like the KV and document routes since #219. They were stored and read back as
+  `null`. Core-layer writers (library/CLI callers) still accept them; that is the design question in
+  #223 step 2, not this change. These routes also inherit the 100-level nesting limit the KV and
+  document routes gained in #220, validating each written object as one value so the object itself
+  counts toward the limit.
 - `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
   so the field was stored as the word `None`: a search for `none` matched the document and its result
   reported the field as `"None"` instead of `""`.
