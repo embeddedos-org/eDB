@@ -1,4 +1,5 @@
 import sqlite3
+from typing import cast
 
 import pytest
 
@@ -303,7 +304,10 @@ def test_get_returns_a_value_written_after_it_read_the_expired_one():
 
     # Same data, but this store's engine slips a write in between the read of
     # the expired row and the delete that follows it.
-    racing = KeyValueStore(_WritesBeforeDelete(engine, "k"))
+    # cast: the wrapper only has to satisfy the execute/commit calls
+    # KeyValueStore makes, which is the point of the test; it is not a
+    # StorageEngine and should not have to be one.
+    racing = KeyValueStore(cast(StorageEngine, _WritesBeforeDelete(engine, "k")))
 
     # The delete must leave the replacement alone, and the caller must be told
     # about it: answering None here reports the key as holding null while
@@ -318,7 +322,10 @@ def test_get_many_keeps_a_value_written_after_it_read_the_expired_one():
     store = KeyValueStore(engine)
     store.set("k", "old", ttl=-1)
 
-    racing = KeyValueStore(_WritesBeforeDelete(engine, "k"))
+    # cast: the wrapper only has to satisfy the execute/commit calls
+    # KeyValueStore makes, which is the point of the test; it is not a
+    # StorageEngine and should not have to be one.
+    racing = KeyValueStore(cast(StorageEngine, _WritesBeforeDelete(engine, "k")))
 
     # get_many() answers from its own snapshot, so the key stays absent from
     # this result; the point is that the cleanup does not destroy the new value.
