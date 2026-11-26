@@ -7,6 +7,7 @@ null (#219, #223), and rejects values nested past MAX_JSON_DEPTH (#220).
 """
 import json
 import math
+from typing import Any
 
 import pytest
 
@@ -58,9 +59,13 @@ def test_rejects_a_value_one_level_past_the_limit(open_, close):
 def test_depth_rejection_does_not_recurse():
     # The walk has to stay iterative: it must reject deep input rather than
     # raise RecursionError out of request-model validation, which would reach
-    # the client as a 500. CPython's json scanner parses ~58,000 levels, far
-    # past the interpreter's recursion limit, so the validator sees them.
-    value = json.loads("[" * 20000 + "1.5" + "]" * 20000)
+    # the client as a 500. Built in Python rather than parsed from text,
+    # because how deep json.loads itself goes before raising RecursionError
+    # varies by interpreter build and stack size; this test is about the
+    # validator, not the parser.
+    value: Any = 1.5
+    for _ in range(20000):
+        value = [value]
     with pytest.raises(ValueError, match="levels deep"):
         _reject_non_finite(value)
 
