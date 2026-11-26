@@ -114,3 +114,22 @@ def test_refresh_token_without_a_subject_returns_401(app_client):
     claims = {"type": "refresh", "jti": "no-sub", "iat": now, "exp": now + timedelta(minutes=5)}
     token = jwt.encode(claims, state.config.jwt_secret, algorithm="HS256")
     assert app_client.post("/auth/refresh", json={"refresh_token": token}).status_code == 401
+
+
+def _without_jti(client, token):
+    """The same token, re-signed without its jti (as tokens were before jti existed)."""
+    secret = client.app.state.edb.config.jwt_secret
+    claims = jwt.decode(token, secret, algorithms=["HS256"])
+    claims.pop("jti")
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
+def test_access_token_without_jti_returns_401(app_client):
+    token = _without_jti(app_client, _login(app_client)["access_token"])
+    assert app_client.get("/auth/me", headers=_auth(token)).status_code == 401
+
+
+def test_refresh_token_without_jti_returns_401(app_client):
+    # It could not be retired after use, so it would mint access tokens forever.
+    token = _without_jti(app_client, _login(app_client)["refresh_token"])
+    assert app_client.post("/auth/refresh", json={"refresh_token": token}).status_code == 401

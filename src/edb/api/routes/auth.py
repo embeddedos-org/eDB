@@ -98,6 +98,9 @@ def refresh_token(
     if (
         payload is None
         or payload.get("type") != "refresh"
+        # Without a jti the token could not be retired below, so it would stay
+        # reusable; every token eDB issues now carries one.
+        or not payload.get("jti")
         or state.token_blacklist.is_revoked(payload.get("jti", ""))
         or state.token_blacklist.is_revoked_for_user(payload.get("sub", ""), payload.get("iat", 0))
     ):
@@ -185,7 +188,8 @@ def logout(
 
 def _revoke(state: AppState, payload: dict[str, Any]) -> None:
     """Blacklist a verified token until it would have expired anyway.
-    Tokens issued before jti existed cannot be revoked; they simply expire.
+    A token without a jti cannot be blacklisted, but get_current_user and
+    /auth/refresh reject such tokens, so it has no session left to end.
     """
     jti = payload.get("jti")
     if not jti:
