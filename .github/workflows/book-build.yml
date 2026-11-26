@@ -192,17 +192,7 @@ jobs:
             -V float-placement-figure=H \
             -V caption-justification=centering \
             -V table-use-row-colors=true \
-            -V "header-includes=\
-              \usepackage{float}\
-              \usepackage{booktabs}\
-              \usepackage{longtable}\
-              \usepackage{caption}\
-              \captionsetup{font=small,labelfont=bf,format=hang}\
-              \captionsetup[figure]{name=Figure}\
-              \captionsetup[table]{name=Table}\
-              \usepackage{graphicx}\
-              \makeatletter\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}\makeatother\
-              \setkeys{Gin}{width=\maxwidth,keepaspectratio}" \
+            --include-in-header=header.tex \
             --highlight-style=tango \
             --number-sections
 
