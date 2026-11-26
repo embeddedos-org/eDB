@@ -21,12 +21,12 @@ Behaviour pinned as the code implements it:
 - count(filter_dict=...) is defined as len(find(...)).
 - drop_collection() removes the documents and the collection
   row; dropping a collection that does not exist is silent.
-- created_at is NOT persisted: the _documents table stores only
-  (doc_id, collection, data), so every read constructs Documents
-  with a fresh created_at = now. Two find() calls for the same
-  row therefore return Documents that are not == (their
-  created_at differs). Pinned as implemented, not fixed here.
+- created_at is stored with the document: every read returns the
+  time of the insert, and update() keeps it. Rows written before
+  the column existed read back with created_at None.
 """
+
+import itertools
 
 import pytest
 
@@ -130,9 +130,6 @@ def test_find_filter_fn(populated):
 
 
 def test_find_offset_and_limit(populated):
-    # Compare ids: created_at is regenerated on every read (see the
-    # module docstring note), so Document equality across two find()
-    # calls never holds.
     def ids(docs):
         return [d.id for d in docs]
 
@@ -253,3 +250,105 @@ def test_paging_does_not_skip_or_repeat_across_a_reinsert(store):
     pages.append([d.id for d in store.find("c", limit=2, offset=2)])
     pages.append([d.id for d in store.find("c", limit=2, offset=4)])
     assert [d for page in pages for d in page] == ["d1", "d2", "d3", "d4", "d5", "d6"]
+# --- created_at ------------------------------------------------------------------
+
+
+def test_created_at_is_the_insert_time_on_every_read(store, monkeypatch):
+    # A controlled clock, not the wall clock: every call returns a new value, so a
+    # read that recomputed created_at instead of loading the stored one would come
+    # back 2000.0 and fail. Against the real clock the insert and the reads can
+    # land in the same tick and such a regression would pass unnoticed.
+    clock = itertools.count(1000.0, 1000.0)
+    monkeypatch.setattr("edb.core.document._time.time", lambda: next(clock))
+
+    inserted = store.insert("notes", {"t": "a"}, doc_id="n1")
+    assert inserted.created_at == 1000.0
+
+    first = store.find_by_id("notes", "n1")
+    assert first.created_at == 1000.0
+    assert store.find_by_id("notes", "n1") == first
+    assert store.find("notes")[0].created_at == 1000.0
+
+
+def test_reinsert_keeps_its_place_but_takes_a_new_created_at(store, monkeypatch):
+    # Where #228 (keep the rowid on re-insert) meets #129 (store created_at):
+    # the upsert must leave the row where it was *and* refresh created_at,
+    # because that is the value insert() hands back to the caller.
+    clock = itertools.count(1000.0, 1000.0)
+    monkeypatch.setattr("edb.core.document._time.time", lambda: next(clock))
+
+    first = store.insert("c", {"v": 1}, doc_id="d1")
+    store.insert("c", {"v": 2}, doc_id="d2")
+    assert first.created_at == 1000.0
+
+    again = store.insert("c", {"v": 3}, doc_id="d1")
+
+    assert [d.id for d in store.find("c")] == ["d1", "d2"]  # place kept
+    stored = store.find_by_id("c", "d1")
+    assert stored.data == {"v": 3}
+    assert stored.created_at == again.created_at  # what insert() returned
+    assert stored.created_at != first.created_at  # and it moved on
+
+
+def test_update_keeps_created_at(store, monkeypatch):
+    clock = itertools.count(1000.0, 1000.0)
+    monkeypatch.setattr("edb.core.document._time.time", lambda: next(clock))
+    store.insert("notes", {"t": "a"}, doc_id="n1")
+
+    assert store.update("notes", "n1", {"t": "b"}).created_at == 1000.0
+    assert store.update("notes", "n1", {"t": "c"}, merge=False).created_at == 1000.0
+    assert store.find_by_id("notes", "n1").created_at == 1000.0
+
+
+def test_table_without_created_at_column_is_migrated():
+    engine = StorageEngine(":memory:")
+    # The _documents layout before created_at was stored.
+    engine.execute(
+        "CREATE TABLE _documents (doc_id TEXT NOT NULL, collection TEXT NOT NULL,"
+        " data TEXT NOT NULL, PRIMARY KEY (doc_id, collection))"
+    )
+    engine.execute(
+        "INSERT INTO _documents (doc_id, collection, data) VALUES ('old', 'c', '{\"v\": 1}')"
+    )
+
+    store = DocumentStore(engine)
+
+    old = store.find_by_id("c", "old")
+    assert old.data == {"v": 1}
+    assert old.created_at is None
+    new = store.insert("c", {"v": 2}, doc_id="new")
+    assert store.find_by_id("c", "new").created_at == new.created_at
+    engine.close()
+
+
+def test_migration_survives_another_process_adding_the_column(monkeypatch):
+    # Two processes can open a pre-migration database at once: both read the old
+    # layout, and the loser's ALTER TABLE fails as a duplicate column. Opening the
+    # store must not depend on winning that race.
+    engine = StorageEngine(":memory:")
+    engine.execute(
+        "CREATE TABLE _documents (doc_id TEXT NOT NULL, collection TEXT NOT NULL,"
+        " data TEXT NOT NULL, PRIMARY KEY (doc_id, collection))"
+    )
+
+    real_fetchall = engine.fetchall
+    seen: list[str] = []
+
+    def racing_fetchall(sql, params=()):
+        rows = real_fetchall(sql, params)
+        if "table_info" in sql and not seen:
+            seen.append(sql)
+            # The other process wins between our PRAGMA and our ALTER.
+            engine.execute("ALTER TABLE _documents ADD COLUMN created_at REAL")
+            engine.commit()
+            return [r for r in rows if r["name"] != "created_at"]
+        return rows
+
+    monkeypatch.setattr(engine, "fetchall", racing_fetchall)
+
+    store = DocumentStore(engine)  # must not raise
+
+    assert seen, "the racing PRAGMA was never exercised"
+    doc = store.insert("c", {"v": 1}, doc_id="d")
+    assert store.find_by_id("c", "d").created_at == doc.created_at
+    engine.close()

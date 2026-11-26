@@ -77,7 +77,11 @@ async def get_current_user(
         )
 
     payload = state.jwt_handler.verify_token(credentials.credentials)
-    if payload is None or state.token_blacklist.is_revoked(payload.get("jti", "")):
+    if (
+        payload is None
+        or state.token_blacklist.is_revoked(payload.get("jti", ""))
+        or state.token_blacklist.is_revoked_for_user(payload.get("sub", ""), payload.get("iat", 0))
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",

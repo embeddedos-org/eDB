@@ -18,6 +18,100 @@ LIST_TABLES_SQL = (
     " AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'"
 )
 
+# Quote characters a value may be wrapped in ("get key 'a b'").
+_VALUE_QUOTES = "'\""
+
+# Rule patterns.
+#
+# Each one stops at the last character the rule structurally requires -- the
+# "=" of a filter, the space after "key", the "into <table>" separator -- and
+# the free-form part is sliced out of the text afterwards by _extract_value().
+#
+# These used to carry the value inline, as ``['\"]?(.+?)['\"]?\s*$`` (and the
+# insert rule as ``(.+?)\s+``). A lazy ``.+?`` also matches whitespace, so it
+# overlapped the ``\s*``/``\s+`` beside it: a run of spaces had as many valid
+# splits as it had characters, and a query that could not match made the engine
+# try all of them. That is quadratic in the length of the run -- CodeQL
+# py/polynomial-redos, and ~81s of CPU for a 5,000-space "find" query.
+#
+# Keeping the open-ended tails out of the regexes removes the ambiguity: every
+# quantifier below is separated from its neighbour by a character class it
+# cannot overlap (``\s`` against ``\w``, or ``\s`` against a literal), so each
+# character of the input can be consumed in exactly one way.
+_FIND_HEAD = re.compile(r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=", re.IGNORECASE)
+_GET_KEY_HEAD = re.compile(r"get\s+key\s", re.IGNORECASE)
+_INSERT_HEAD = re.compile(r"(?:insert|add|create)\s+", re.IGNORECASE)
+
+# The insert separator, `\s+(?:into|to|in)\s+(\w+)`, is spelled out in
+# _insert_table() instead of written as one pattern. Each piece below is a
+# single quantifier matched at a known offset, so there is never a quantifier
+# beside another one to divide a run of characters with, and a lone greedy run
+# never backtracks.
+_WS_RUN = re.compile(r"\s+")
+_WORD_RUN = re.compile(r"\w+")
+_NON_SPACE_RUN = re.compile(r"\S+")
+_INSERT_KEYWORDS = ("into", "to", "in")
+
+
+def _insert_table(text: str, pos: int) -> str | None:
+    r"""Match ``\s+(?:into|to|in)\s+(\w+)`` at *pos*; return the table name.
+
+    Anchored, like the original was once the lazy data group had committed to
+    a split. The keywords are tried longest-first, as the alternation did.
+
+    Only the greedy reading of each ``\s+`` can lead anywhere: every keyword
+    starts with a non-space, so a shorter whitespace run could never be
+    followed by one. That is why no backtracking is needed here, and why this
+    is linear where a single combined pattern was not.
+    """
+    gap = _WS_RUN.match(text, pos)
+    if gap is None:
+        return None
+    keyword_start = gap.end()
+    head = text[keyword_start : keyword_start + 4].lower()
+    for keyword in _INSERT_KEYWORDS:
+        if not head.startswith(keyword):
+            continue
+        spacing = _WS_RUN.match(text, keyword_start + len(keyword))
+        if spacing is None:
+            continue
+        table = _WORD_RUN.match(text, spacing.end())
+        if table is not None:
+            return table.group(0)
+    return None
+_DELETE_HEAD = re.compile(
+    r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=", re.IGNORECASE
+)
+
+
+def _extract_value(raw: str) -> str | None:
+    r"""Turn the text following a rule's last fixed character into a value.
+
+    Trims surrounding whitespace, then at most one quote from each end --
+    exactly what the old ``['\"]?(.+?)['\"]?\s*$`` tail did, but by slicing
+    instead of by backtracking, so it is linear in the length of the input.
+
+    Returns ``None`` where that tail used to fail to match, which leaves the
+    caller falling through to the next rule just as it did before.
+    """
+    # The old tail ended in ``$`` and ``.`` never matches a newline, so a value
+    # could not span lines. Only an *interior* newline made the rule fail: the
+    # separator in front of the value (``\s+`` after "key", ``\s*`` after "=")
+    # absorbed leading whitespace, newlines included, and the trailing ``\s*$``
+    # absorbed it at the end. So strip first, then reject a newline in what is
+    # left -- checking before stripping rejected "get key \nSession-Token",
+    # which used to be a valid KV read.
+    value = raw.strip()
+    if "\n" in value:
+        return None
+    # ``len(value) > 1`` mirrors the old ``.+?``, which always kept at least
+    # one character and so never consumed a lone quote as a delimiter.
+    if len(value) > 1 and value[0] in _VALUE_QUOTES:
+        value = value[1:]
+    if len(value) > 1 and value[-1] in _VALUE_QUOTES:
+        value = value[:-1]
+    return value or None
+
 
 class NLQueryTranslator:
     """Translates natural language queries into eDB query DSL."""
@@ -43,7 +137,12 @@ class NLQueryTranslator:
     def _rule_based_translate(
         self, text: str, context: dict[str, Any] | None = None
     ) -> TranslationResult:
-        """Rule-based translation using regex patterns."""
+        """Rule-based translation using regex patterns.
+
+        Keywords match case-insensitively, but names, keys and values are
+        taken from the original text: collection names, KV keys and stored
+        values are case-sensitive, so lowercasing them changed the query.
+        """
         text_lower = text.lower().strip()
 
         # "list tables/collections/keys" → metadata queries (must be checked before generic pattern)
@@ -82,47 +181,50 @@ class NLQueryTranslator:
         # "find <collection> where <key>=<value>" → DOCUMENT FIND
         # (checked before the generic SELECT arm below, which would
         # otherwise swallow "find <collection>" and drop the filter)
-        match = re.match(
-            r"find\s+(?:in\s+)?(\w+)\s+where\s+(\w+)\s*=\s*['\"]?(.+?)['\"]?\s*$",
-            text_lower,
-        )
+        # _FIND_HEAD stops at the "="; the value is whatever follows it.
+        match = _FIND_HEAD.match(text)
         if match:
-            collection = match.group(1)
-            key = match.group(2)
-            value = match.group(3)
-            return TranslationResult(
-                original_text=text,
-                translated_query={
-                    "type": "document",
-                    "action": "find",
-                    "collection": collection,
-                    "filter": {key: value},
-                },
-                confidence=0.6,
-                explanation=f"Find in '{collection}' where {key}={value}",
-            )
+            value = _extract_value(text[match.end() :])
+            if value is not None:
+                collection = match.group(1)
+                key = match.group(2)
+                return TranslationResult(
+                    original_text=text,
+                    translated_query={
+                        "type": "document",
+                        "action": "find",
+                        "collection": collection,
+                        "filter": {key: value},
+                    },
+                    confidence=0.6,
+                    explanation=f"Find in '{collection}' where {key}={value}",
+                )
 
         # "get key <key>" → KV GET
         # (checked before the generic SELECT arm; the "key" keyword is
         # required so plain "get <table>" keeps its SELECT meaning)
-        match = re.match(r"get\s+key\s+['\"]?(.+?)['\"]?\s*$", text_lower)
+        # _GET_KEY_HEAD stops at the one space "key" must be followed by; any
+        # further leading whitespace is trimmed by _extract_value().
+        match = _GET_KEY_HEAD.match(text)
         if match:
-            key = match.group(1)
-            return TranslationResult(
-                original_text=text,
-                translated_query={
-                    "type": "kv",
-                    "action": "get",
-                    "key": key,
-                },
-                confidence=0.5,
-                explanation=f"GET key '{key}'",
-            )
+            key = _extract_value(text[match.end() :])
+            if key is not None:
+                return TranslationResult(
+                    original_text=text,
+                    translated_query={
+                        "type": "kv",
+                        "action": "get",
+                        "key": key,
+                    },
+                    confidence=0.5,
+                    explanation=f"GET key '{key}'",
+                )
 
         # "show all/list <table>" → SELECT
         match = re.match(
             r"(?:show|list|get|display|find)\s+(?:all\s+)?(?:from\s+)?(\w+)",
-            text_lower,
+            text,
+            re.IGNORECASE,
         )
         if match:
             table = match.group(1)
@@ -138,7 +240,7 @@ class NLQueryTranslator:
             )
 
         # "count <collection/table>" → COUNT
-        match = re.match(r"(?:count|how many)\s+(\w+)", text_lower)
+        match = re.match(r"(?:count|how many)\s+(\w+)", text, re.IGNORECASE)
         if match:
             target = match.group(1)
             return TranslationResult(
@@ -153,47 +255,61 @@ class NLQueryTranslator:
             )
 
         # "insert/add <data> into <table>" → INSERT
-        match = re.match(
-            r"(?:insert|add|create)\s+(.+?)\s+(?:into|to|in)\s+(\w+)",
-            text_lower,
-        )
+        # The old `(.+?)\s+(?:into|to|in)\s+` grew the data one character at a
+        # time and retried the whole separator at each step. Because `\s+`
+        # follows the data, the data can only ever end where a run of
+        # non-space characters ends, so those offsets are the only candidate
+        # splits -- and the first one that works is the split the lazy `.+?`
+        # settled on. Each is tried with an anchored .match(), so no pattern
+        # ever slides along the whitespace and the whole scan stays linear.
+        match = _INSERT_HEAD.match(text)
         if match:
-            data_str = match.group(1)
-            table = match.group(2)
-            data = self._parse_simple_data(data_str)
-            if data:
+            start = match.end()
+            for token in _NON_SPACE_RUN.finditer(text, start):
+                data_str = text[start : token.end()]
+                # `.+?` never matched a newline, so a newline anywhere in the
+                # data made the old rule fail outright.
+                if "\n" in data_str:
+                    break
+                table = _insert_table(text, token.end())
+                if table is None:
+                    continue
+                # The regex committed to this first split, so an unparseable
+                # data string falls through to the next rule, as it did before.
+                data = self._parse_simple_data(data_str)
+                if data:
+                    return TranslationResult(
+                        original_text=text,
+                        translated_query={
+                            "type": "sql",
+                            "action": "insert",
+                            "table": table,
+                            "data": data,
+                        },
+                        confidence=0.5,
+                        explanation=f"INSERT into '{table}'",
+                    )
+                break
+
+        # "delete from <table> where <key>=<value>" → DELETE
+        # Same head-plus-slice shape as the find arm.
+        match = _DELETE_HEAD.match(text)
+        if match:
+            value = _extract_value(text[match.end() :])
+            if value is not None:
+                table = match.group(1)
+                key = match.group(2)
                 return TranslationResult(
                     original_text=text,
                     translated_query={
                         "type": "sql",
-                        "action": "insert",
+                        "action": "delete",
                         "table": table,
-                        "data": data,
+                        "where": {key: value},
                     },
-                    confidence=0.5,
-                    explanation=f"INSERT into '{table}'",
+                    confidence=0.6,
+                    explanation=f"DELETE from '{table}' where {key}={value}",
                 )
-
-        # "delete from <table> where <key>=<value>" → DELETE
-        match = re.match(
-            r"(?:delete|remove)\s+(?:from\s+)?(\w+)\s+where\s+(\w+)\s*=\s*['\"]?(.+?)['\"]?\s*$",
-            text_lower,
-        )
-        if match:
-            table = match.group(1)
-            key = match.group(2)
-            value = match.group(3)
-            return TranslationResult(
-                original_text=text,
-                translated_query={
-                    "type": "sql",
-                    "action": "delete",
-                    "table": table,
-                    "where": {key: value},
-                },
-                confidence=0.6,
-                explanation=f"DELETE from '{table}' where {key}={value}",
-            )
 
         # "list tables/collections/keys" → metadata queries
         # (already handled at the top of the method; this is unreachable)
