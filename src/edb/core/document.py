@@ -49,7 +49,16 @@ class DocumentStore:
         # Databases created before created_at was stored lack the column.
         cols = {r["name"] for r in self._e.fetchall("PRAGMA table_info(_documents)")}
         if "created_at" not in cols:
-            self._e.execute("ALTER TABLE _documents ADD COLUMN created_at REAL")
+            try:
+                self._e.execute("ALTER TABLE _documents ADD COLUMN created_at REAL")
+            except sqlite3.OperationalError:
+                # Another process may add the column between the PRAGMA above and
+                # this ALTER, which fails as a duplicate column. Opening the store
+                # must not depend on winning that race, so re-read the layout and
+                # only re-raise if the column really is still missing.
+                cols = {r["name"] for r in self._e.fetchall("PRAGMA table_info(_documents)")}
+                if "created_at" not in cols:
+                    raise
         self._e.commit()
 
     @staticmethod

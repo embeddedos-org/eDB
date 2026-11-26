@@ -224,13 +224,21 @@ def test_document_model_dump_shape():
 # --- created_at ------------------------------------------------------------------
 
 
-def test_created_at_is_the_insert_time_on_every_read(store):
+def test_created_at_is_the_insert_time_on_every_read(store, monkeypatch):
+    # A controlled clock, not the wall clock: every call returns a new value, so a
+    # read that recomputed created_at instead of loading the stored one would come
+    # back 2000.0 and fail. Against the real clock the insert and the reads can
+    # land in the same tick and such a regression would pass unnoticed.
+    clock = itertools.count(1000.0, 1000.0)
+    monkeypatch.setattr("edb.core.document._time.time", lambda: next(clock))
+
     inserted = store.insert("notes", {"t": "a"}, doc_id="n1")
+    assert inserted.created_at == 1000.0
 
     first = store.find_by_id("notes", "n1")
-    assert first.created_at == inserted.created_at
+    assert first.created_at == 1000.0
     assert store.find_by_id("notes", "n1") == first
-    assert store.find("notes")[0].created_at == inserted.created_at
+    assert store.find("notes")[0].created_at == 1000.0
 
 
 def test_update_keeps_created_at(store, monkeypatch):
@@ -261,4 +269,37 @@ def test_table_without_created_at_column_is_migrated():
     assert old.created_at is None
     new = store.insert("c", {"v": 2}, doc_id="new")
     assert store.find_by_id("c", "new").created_at == new.created_at
+    engine.close()
+
+
+def test_migration_survives_another_process_adding_the_column(monkeypatch):
+    # Two processes can open a pre-migration database at once: both read the old
+    # layout, and the loser's ALTER TABLE fails as a duplicate column. Opening the
+    # store must not depend on winning that race.
+    engine = StorageEngine(":memory:")
+    engine.execute(
+        "CREATE TABLE _documents (doc_id TEXT NOT NULL, collection TEXT NOT NULL,"
+        " data TEXT NOT NULL, PRIMARY KEY (doc_id, collection))"
+    )
+
+    real_fetchall = engine.fetchall
+    seen: list[str] = []
+
+    def racing_fetchall(sql, params=()):
+        rows = real_fetchall(sql, params)
+        if "table_info" in sql and not seen:
+            seen.append(sql)
+            # The other process wins between our PRAGMA and our ALTER.
+            engine.execute("ALTER TABLE _documents ADD COLUMN created_at REAL")
+            engine.commit()
+            return [r for r in rows if r["name"] != "created_at"]
+        return rows
+
+    monkeypatch.setattr(engine, "fetchall", racing_fetchall)
+
+    store = DocumentStore(engine)  # must not raise
+
+    assert seen, "the racing PRAGMA was never exercised"
+    doc = store.insert("c", {"v": 1}, doc_id="d")
+    assert store.find_by_id("c", "d").created_at == doc.created_at
     engine.close()
