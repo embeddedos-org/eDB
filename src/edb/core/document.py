@@ -120,8 +120,16 @@ class DocumentStore:
         if (limit is not None and limit < 0) or (offset is not None and offset < 0):
             raise ValueError("limit and offset must not be negative")
         # ORDER BY rowid is insertion order (insert() keeps the rowid on
-        # re-insert), so consecutive pages neither overlap nor skip documents
-        # unless one is deleted between requests.
+        # re-insert), so a re-insert no longer moves a document to the end and
+        # consecutive pages stay consistent across one.
+        #
+        # That is the whole of the guarantee: these are offset pages over a live
+        # table, not a snapshot. Anything that changes which documents precede
+        # the boundary still shifts the pages after it -- a delete, or a write
+        # that changes whether an earlier document matches, since filter_dict
+        # and filter_fn are applied below before offset is taken. A caller that
+        # needs pages to be stable against concurrent writes needs a cursor, not
+        # an offset.
         rows = self._e.fetchall(
             "SELECT * FROM _documents WHERE collection = ? ORDER BY rowid",
             (collection,),
