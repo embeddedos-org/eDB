@@ -116,15 +116,52 @@ class TestNLQueryTranslator:
         from edb.query.parser import QueryParser
         from edb.query.planner import QueryPlanner
 
-        db = Database(":memory:")
-        try:
+        with Database(":memory:") as db:
+            # Two documents differing only in case: a find that ignored its
+            # filter, or lowercased the value, would return the wrong one or
+            # both, so row_count alone cannot pass by accident.
             db.docs.insert("users", {"name": "Ada"})
+            db.docs.insert("users", {"name": "ada"})
             r = self.t.translate("find users where name=Ada")
             result = QueryPlanner(db).execute(QueryParser().parse(r.translated_query))
             assert result.success
             assert result.row_count == 1
-        finally:
-            db.close()
+            assert [d["data"]["name"] for d in result.data] == ["Ada"]
+
+    # ------------------------------------------------------------------
+    # A newline between a rule's keyword and its value is separator
+    # whitespace, not part of the value. The patterns that used to absorb it
+    # (`\s+` after "key", `\s*` after "=") were replaced by a slice, so
+    # rejecting it would silently reroute these queries -- "get key\n<k>"
+    # to a SELECT on a table called "key", and "find ... =\n<v>" to an
+    # *unfiltered* SELECT that returns every row.
+    # ------------------------------------------------------------------
+
+    def test_get_key_accepts_a_newline_before_the_key(self):
+        r = self.t.translate("get key \nSession-Token")
+        assert r.translated_query == {
+            "type": "kv",
+            "action": "get",
+            "key": "Session-Token",
+        }
+
+    def test_find_accepts_a_newline_before_the_value(self):
+        r = self.t.translate("find users where name=\nAda")
+        assert r.translated_query["action"] == "find"
+        assert r.translated_query["filter"] == {"name": "Ada"}
+
+    def test_delete_accepts_a_newline_before_the_value(self):
+        r = self.t.translate("delete from users where name=\nAda")
+        assert r.translated_query["action"] == "delete"
+        assert r.translated_query["where"] == {"name": "Ada"}
+
+    def test_value_containing_a_newline_is_still_rejected(self):
+        # `.` never matched a newline, so a value could not span lines.
+        assert self.t.translate("get key a\nb").translated_query != {
+            "type": "kv",
+            "action": "get",
+            "key": "a\nb",
+        }
 
     def test_gibberish_errors_with_hint(self):
         r = self.t.translate("florp the wobble")

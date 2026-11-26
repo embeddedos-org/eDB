@@ -95,12 +95,15 @@ def _extract_value(raw: str) -> str | None:
     caller falling through to the next rule just as it did before.
     """
     # The old tail ended in ``$`` and ``.`` never matches a newline, so a value
-    # could not span lines: one trailing newline was fine (``$`` matches before
-    # it), an interior newline made the rule fail.
-    line = raw[:-1] if raw.endswith("\n") else raw
-    if "\n" in line:
+    # could not span lines. Only an *interior* newline made the rule fail: the
+    # separator in front of the value (``\s+`` after "key", ``\s*`` after "=")
+    # absorbed leading whitespace, newlines included, and the trailing ``\s*$``
+    # absorbed it at the end. So strip first, then reject a newline in what is
+    # left -- checking before stripping rejected "get key \nSession-Token",
+    # which used to be a valid KV read.
+    value = raw.strip()
+    if "\n" in value:
         return None
-    value = line.strip()
     # ``len(value) > 1`` mirrors the old ``.+?``, which always kept at least
     # one character and so never consumed a lone quote as a delimiter.
     if len(value) > 1 and value[0] in _VALUE_QUOTES:
