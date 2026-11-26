@@ -1,7 +1,6 @@
 """Unit tests for the query planner."""
 
 from edb.core.models import ColumnDefinition, ColumnType, TableSchema
-
 from edb.query.models import QueryType
 from edb.query.parser import QueryParser
 from edb.query.planner import QueryPlanner
