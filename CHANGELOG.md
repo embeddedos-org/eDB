@@ -35,6 +35,10 @@
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
   now a key range (`key >= prefix AND key < next`), which also uses the key index.
+- `KeyValueStore.get()` and `get_many()` (and `GET /kv/{key}` and eBot's `get`) no longer delete a
+  value that another request writes while they are removing an expired key. They deleted the key
+  outright, so a `set()` landing between their read and their delete was lost; they now delete it
+  only while it is still expired.
 - `DocumentStore` now stores each document's `created_at`. It was never saved, so `find()`,
   `find_by_id()`, `update()`, `GET /docs/{collection}/{doc_id}` and the document queries reported the
   time of the read as `created_at`, a different value on every call. `update()` keeps the original

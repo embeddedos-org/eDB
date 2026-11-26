@@ -79,7 +79,12 @@ class KeyValueStore:
         if row is None:
             return None
         if self._is_expired(row["expires_at"]):
-            self.delete(key)
+            # Delete the key only while it is still expired: another request may
+            # have written a new value since the SELECT above.
+            self._e.execute(
+                "DELETE FROM _kv WHERE key = ? AND expires_at < ?", (key, time.time())
+            )
+            self._e.commit()
             return None
         return self._decode(row["value"])
 
@@ -157,7 +162,11 @@ class KeyValueStore:
             del_placeholders = ",".join(["?"] * len(keys_to_delete))
             self._e.execute("BEGIN TRANSACTION")
             try:
-                self._e.execute(f"DELETE FROM _kv WHERE key IN ({del_placeholders})", tuple(keys_to_delete))
+                # Only rows still expired: a value written since the SELECT stays.
+                self._e.execute(
+                    f"DELETE FROM _kv WHERE key IN ({del_placeholders}) AND expires_at < ?",
+                    (*keys_to_delete, now),
+                )
                 self._e.execute("COMMIT")
             except Exception:
                 self._e.execute("ROLLBACK")

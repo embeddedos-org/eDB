@@ -270,3 +270,43 @@ def test_exists_is_false_for_missing_and_expired_keys(kv_store):
     kv_store.set("old", "x", ttl=-1)
     assert kv_store.exists("missing") is False
     assert kv_store.exists("old") is False
+
+
+class _WritesBeforeDelete:
+    """Engine wrapper that stores "new" under `key` just before the first DELETE,
+    as another request can between a read of an expired key and its delete."""
+
+    def __init__(self, real, key):
+        self._real = real
+        self._key = key
+        self._written = False
+
+    def execute(self, sql, params=()):
+        if sql.startswith("DELETE FROM _kv") and not self._written:
+            self._written = True
+            self._real.execute(
+                "INSERT OR REPLACE INTO _kv (key, value, expires_at) VALUES (?, ?, NULL)",
+                (self._key, '"new"'),
+            )
+        return self._real.execute(sql, params)
+
+    def commit(self):
+        return self._real.commit()
+
+
+def test_get_keeps_a_value_written_after_it_read_the_expired_one(kv_store):
+    kv_store.set("k", "old", ttl=-1)
+    real = kv_store._e
+    kv_store._e = _WritesBeforeDelete(real, "k")
+    assert kv_store.get("k") is None
+    kv_store._e = real
+    assert kv_store.get("k") == "new"
+
+
+def test_get_many_keeps_a_value_written_after_it_read_the_expired_one(kv_store):
+    kv_store.set("k", "old", ttl=-1)
+    real = kv_store._e
+    kv_store._e = _WritesBeforeDelete(real, "k")
+    assert kv_store.get_many(["k"]) == {}
+    kv_store._e = real
+    assert kv_store.get("k") == "new"
