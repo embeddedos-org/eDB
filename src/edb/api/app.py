@@ -66,7 +66,15 @@ def create_app(config: EDBConfig | None = None) -> FastAPI:
         # FastAPI's default handler echoes each rejected input back in the 422
         # body. Python's JSON parser accepts NaN and Infinity, but JSONResponse
         # refuses to encode them, so a rejected NaN would turn the 422 into a 500.
-        detail = _json_safe(jsonable_encoder(exc.errors()))
+        # The same failure shows up for a deeply nested rejected input (~500+
+        # levels): encoding the echoed input recurses past the limit, so the
+        # 422 itself becomes a 500 (eDB#220). Then the failure is reported
+        # without the input.
+        try:
+            detail = _json_safe(jsonable_encoder(exc.errors()))
+        except Exception:
+            logger.warning("could not encode validation errors; returning a generic 422")
+            detail = [{"type": "value_error", "msg": "Request validation failed"}]
         return JSONResponse(status_code=422, content={"detail": detail})
 
     origins = [o.strip() for o in config.cors_origins.split(",") if o.strip()]

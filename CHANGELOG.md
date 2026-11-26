@@ -19,10 +19,21 @@
   `TokenBlacklist.revoke_all_for_user()` records was never checked. Token times are whole seconds, so
   a token issued in the same second as the change is kept for the rest of its lifetime: by default up
   to 60 minutes for an access token and 7 days for a refresh token.
+- `POST /auth/refresh` and every route that needs a login reject a token without a `jti` with 401.
+  `POST /auth/logout` could not revoke such a token, although it answered `Logged out successfully`, and
+  a refresh token without one was not single-use. Every token eDB has issued since logout revocation
+  was added carries a `jti`, so only tokens from before then are affected. The same check also
+  rejects a token whose `jti` or `sub` is not a non-empty string, or whose `iat` is not a plain
+  integer, rather than passing the claim to the blacklist query.
 - `RelationalStore.insert_many()` binds every row's values by column name. It used each row's own
   key order with the first row's column list, so `[{"a": 1, "b": 2}, {"b": 3, "a": 4}]` stored the
   second row as `a=3, b=4`. A row whose columns differ from the first row's now raises `ValueError`
   instead of binding values to the wrong columns.
+- A KV value or document nested more than 100 levels deep is rejected with 422 instead of being
+  stored and then failing every response with 500. Past about 300 levels FastAPI/Pydantic could not
+  serialize the response, so the write succeeded and the value could never be read back; the 422
+  error path itself is also guarded, so a rejected input nested ~500+ levels deep still returns 422
+  rather than a 500.
 - `GET /sql/tables/{table_name}` and `GET /admin/audit` reject a `limit` outside 1–1000, and an
   `offset` that is negative or past SQLite's 64-bit range, with 422. A negative `limit` returned every
   row, because SQLite reads it as "no limit", and a value past the 64-bit range failed with a 500 error.
@@ -30,15 +41,27 @@
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
   now a key range (`key >= prefix AND key < next`), which also uses the key index.
+- `DocumentStore` now stores each document's `created_at`. It was never saved, so `find()`,
+  `find_by_id()`, `update()`, `GET /docs/{collection}/{doc_id}` and the document queries reported the
+  time of the read as `created_at`, a different value on every call. `update()` keeps the original
+  value. An existing database gains the column on open; documents written before that report
+  `created_at: null`.
 - `PUT /kv/{key}`, `POST /docs/{collection}` and `PUT /docs/{collection}/{doc_id}` reject `NaN`,
   `Infinity` and `-Infinity` anywhere in the value or document with 422. Python's JSON parser accepts
   them although they are not valid JSON, so they were stored as invalid JSON and read back as `null`.
 - `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
   so the field was stored as the word `None`: a search for `none` matched the document and its result
   reported the field as `"None"` instead of `""`.
+- `DocumentStore.insert()` for an existing `doc_id` updates the document in place. It used
+  `INSERT OR REPLACE`, which gave the document a new rowid and moved it to the end of `find()`, so a
+  client paging through it could skip one document and see another twice. `find()` also orders by
+  `rowid` now, so insertion order is stated by the query rather than left to the planner.
 - `GraphStore.add_node()` for an existing `node_id` updates the node in place. It used
   `INSERT OR REPLACE`, which gave the node a new rowid and moved it to the end of `find_nodes()`, so a
   client paging through it could skip one node and see another twice.
+- `GET /graph/nodes?label=` no longer scans every node: `_graph_nodes` gains an index on `label`,
+  named `idx_graph_nodes_label`. The index is created on the next open of an existing database and
+  changes no results.
 - `RelationalStore.create_table()` (and `POST /sql/tables`, the `sql create_table` query) now writes
   `ColumnDefinition.default` into the table as a `DEFAULT` clause. It was ignored, so a row inserted
   without that column got `NULL` instead of the default. Text, numbers, booleans and bytes are
@@ -53,6 +76,16 @@
 - `edb shell` prints the column header and `(0 rows)` for a query that matches no rows, and
   `OK (affected: 0)` for statements such as `CREATE TABLE`. Both printed `OK (affected: -1)`, sqlite3's
   rowcount for statements it does not count.
+- eBot's rule-based translator (`POST /ebot/query`) no longer lowercases names, keys and values.
+  It matched its patterns against the lowercased text, so `find users where name=Ada` searched for
+  `ada` and found nothing, and `get key Session-Token` looked up `session-token`. Keywords still
+  match in any case.
+- eBot's rule-based translator (`POST /ebot/query`) no longer degrades to quadratic matching on
+  queries containing a long run of spaces (polynomial ReDoS). The `find`, `get key`, `insert` and
+  `delete` patterns paired a lazy `(.+?)` with an adjacent `\s*`/`\s+`, so the engine retried every
+  split of the run: a 5,000-space `find ... where ... =` query took ~81s of CPU, and `delete` ~160s.
+  The patterns are now unambiguous and the same query is handled in well under a millisecond.
+  Translation results are unchanged.
 - `Database(":memory:")` is one database shared by every thread that uses it. Each thread got its own
   empty database, so data written in one thread was missing in another (`no such table`). This needs
   SQLite 3.36 or newer; with an older SQLite, opening `:memory:` raises `RuntimeError` saying so. It has
@@ -120,3 +153,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI pipeline
 - Architecture documentation and API reference
 - Contributing guidelines and security policy
+
