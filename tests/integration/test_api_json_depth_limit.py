@@ -7,11 +7,14 @@ Values nested more than 100 levels are now rejected with 422 before anything
 is stored, and the 422 itself is returned even for a ~500-level input.
 """
 
+from typing import Any
+
 import pytest
 
 
-def _nested(levels):
-    value = 1
+def _nested(levels: int) -> Any:
+    """Return ``1`` wrapped in ``levels`` nested lists."""
+    value: Any = 1
     for _ in range(levels):
         value = [value]
     return value
