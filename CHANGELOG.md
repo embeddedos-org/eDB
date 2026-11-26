@@ -9,6 +9,10 @@
 
 ### Fixed
 
+- `KeyValueStore.set_many()` and `get_many()` now work inside `Database.transaction()` or a caller's
+  `BEGIN`. They opened their own transaction with `BEGIN`, which raised `cannot start a transaction
+  within a transaction` there and rolled back the caller's whole transaction. They now use a savepoint,
+  which nests; outside a transaction they still commit on their own.
 - `edb serve` reads `EDB_DB_PATH`, `EDB_API_HOST` and `EDB_API_PORT` from the environment and `.env`
   when `--db`, `--host` or `--port` is not given, and a flag that is given wins. Before, `--host` and
   `--port` always fell back to `127.0.0.1:8000`, a `.env` database path was replaced by `edb_data.db`,
