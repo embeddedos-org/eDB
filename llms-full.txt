@@ -304,14 +304,14 @@ Change password. Requires auth.
 
 A wrong current password returns 400. A new password shorter than 8 or longer than 128 characters is rejected by request validation and returns 422; one that passes the length check but breaks the strength rules returns 400.
 
-Changing the password does **not** revoke tokens. Access and refresh tokens issued before the change stay valid until they expire, so other sessions remain signed in and a held refresh token can still mint new access tokens (tracked in #242). Call `POST /auth/logout` from each session, or wait out the token lifetime, to end them.
+Changing the password signs out every session of the user. The handler records a user-wide revocation cutoff, so access and refresh tokens issued before the change are rejected with 401 — including the one that made the call — and the response says to log in again. Token times are whole seconds, so a token issued in the same second as the change is kept for the rest of its lifetime: by default up to 60 minutes for an access token and 7 days for a refresh token.
 
 ### `POST /auth/logout`
 Sign out. Requires auth.
 
 **Body:** `{"refresh_token": "..."}` (optional)
 
-Revokes the access token used for the call and, if given, that refresh token. Revocation works by blacklisting the token's `jti`, so a token minted before `jti` was issued cannot be revoked and stays usable until it expires.
+Revokes the access token used for the call and, if given, that refresh token. Revocation works by blacklisting the token's `jti`. A token without a `jti` cannot be blacklisted, so rather than letting it through unrevokable, every route that needs a login rejects it with 401; the same applies to a token whose `jti` or `sub` is not a non-empty string, or whose `iat` is not a plain integer. Every token eDB has issued since logout revocation was added carries a `jti`, so only tokens minted before then are affected.
 
 ---
 

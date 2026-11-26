@@ -47,7 +47,11 @@ Observed in the source tree (`src/edb/`):
 
 ## Install & run (Python engine)
 
-Requires Python 3.11+. `:memory:` databases need SQLite 3.36 or newer — Python links the host's SQLite, so `requires-python = ">=3.11"` does not imply it; with an older SQLite, opening `:memory:` raises `RuntimeError` naming the requirement and the version found.
+Requires Python 3.11+. `:memory:` databases need SQLite 3.36 or newer, and `requires-python = ">=3.11"` does not imply it; with an older SQLite, opening `:memory:` raises `RuntimeError` naming the requirement and the version found. Which SQLite applies depends on the Python distribution — some build against the host library, while python.org and conda installers bundle their own — so check the one your interpreter actually uses:
+
+```bash
+python -c "import sqlite3; print(sqlite3.sqlite_version)"
+```
 
 ```bash
 pip install -e ".[dev]"      # add ",ebot" for the optional LLM backend

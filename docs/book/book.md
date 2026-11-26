@@ -719,7 +719,7 @@ eDB provides a full REST API via FastAPI with auto-generated OpenAPI documentati
 | POST | `/auth/refresh` | Refresh access token |
 | POST | `/auth/register` | Register a new user |
 | GET | `/auth/me` | Current user profile |
-| POST | `/auth/password` | Change password; existing tokens stay valid (see #242) |
+| POST | `/auth/password` | Change password; signs out every session — tokens issued earlier are rejected, log in again |
 | POST | `/auth/logout` | Revoke the access token used for the call and, if given in the body, that refresh token |
 
 ### Login
@@ -779,9 +779,14 @@ curl -X POST http://localhost:8000/sql/execute \
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/kv/keys` | List keys (optional `?prefix=session:`) |
-| GET | `/kv/{key}` | Get value |
+| GET | `/kv/{key}` | Get value — except `keys`, see below |
 | PUT | `/kv/{key}` | Set value |
 | DELETE | `/kv/{key}` | Delete key |
+
+`keys` is a reserved path segment. `GET /kv/keys` is matched by the list route
+above, which is registered first, so a value stored under the key `keys` can be
+written by `PUT /kv/keys` and deleted by `DELETE /kv/keys` but cannot be read
+back through `GET`. Avoid `keys` as a key name.
 
 ## 10.6 Admin Endpoints
 
@@ -845,9 +850,14 @@ Client                              Server
   │  {refresh_token}                   │
   │ ──────────────────────────────────►│
   │                                    │  Validate refresh
-  │  {access_token (new)}              │  Issue new access
+  │  {access_token, refresh_token}     │  Issue a new pair,
+  │          (both new)                │  revoke the old refresh
   │ ◄──────────────────────────────────│
 ```
+
+`/auth/refresh` rotates the refresh token: it returns a new `access_token` and a
+new `refresh_token`, and the refresh token sent in is revoked, so each one is
+good for a single use. Store the new refresh token in place of the old one.
 
 ## 11.2 Role-Based Access Control (RBAC)
 
@@ -1276,6 +1286,10 @@ class EDBClient {
         this.token = token;
     }
 
+    // Admin only: /sql/execute requires the db:raw_sql permission, which only
+    // the admin role holds, so a read_only or read_write token gets 403 here.
+    // Those roles have db:read and can use the table routes instead:
+    // GET /sql/tables/{table} or POST /sql/tables/{table}/select.
     async query(sql) {
         const response = await fetch(`${this.baseUrl}/sql/execute`, {
             method: 'POST',
@@ -1302,20 +1316,24 @@ class EDBClient {
                 'Authorization': `Bearer ${this.token}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(document),
+            // POST /docs/{collection} takes {"data": {...}}; sending the
+            // document bare is rejected with 422.
+            body: JSON.stringify({ data: document }),
         });
         return response.json();
     }
 
+    // Keys go in the path, so encode them: an unencoded "a?b" would be sent
+    // as /kv/a?b and act on the key "a" instead.
     async kvGet(key) {
-        const response = await fetch(`${this.baseUrl}/kv/${key}`, {
+        const response = await fetch(`${this.baseUrl}/kv/${encodeURIComponent(key)}`, {
             headers: { 'Authorization': `Bearer ${this.token}` },
         });
         return response.json();
     }
 
     async kvSet(key, value, ttl = null) {
-        const response = await fetch(`${this.baseUrl}/kv/${key}`, {
+        const response = await fetch(`${this.baseUrl}/kv/${encodeURIComponent(key)}`, {
             method: 'PUT',
             headers: {
                 'Authorization': `Bearer ${this.token}`,
