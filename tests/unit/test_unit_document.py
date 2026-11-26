@@ -221,6 +221,35 @@ def test_document_model_dump_shape():
     }
 
 
+# --- re-insert keeps its place (eDB#228) -------------------------------------
+
+
+def test_reinserting_a_document_keeps_its_place_in_find(store):
+    for doc_id in ("d1", "d2", "d3", "d4", "d5", "d6"):
+        store.insert("c", {"v": doc_id}, doc_id=doc_id)
+
+    assert [d.id for d in store.find("c")] == ["d1", "d2", "d3", "d4", "d5", "d6"]
+
+    # An update keeps the place (UPDATE); a re-insert must too (upsert).
+    store.update("c", "d2", {"v": "d2-new"})
+    assert [d.id for d in store.find("c")] == ["d1", "d2", "d3", "d4", "d5", "d6"]
+
+    store.insert("c", {"v": "d2-again"}, doc_id="d2")
+    assert [d.id for d in store.find("c")] == ["d1", "d2", "d3", "d4", "d5", "d6"]
+    assert store.find_by_id("c", "d2").data == {"v": "d2-again"}
+
+
+def test_paging_does_not_skip_or_repeat_across_a_reinsert(store):
+    for doc_id in ("d1", "d2", "d3", "d4", "d5", "d6"):
+        store.insert("c", {"v": doc_id}, doc_id=doc_id)
+
+    first = [d.id for d in store.find("c", limit=2, offset=0)]
+    assert first == ["d1", "d2"]
+    store.insert("c", {"v": "d1-again"}, doc_id="d1")
+    pages = [first]
+    pages.append([d.id for d in store.find("c", limit=2, offset=2)])
+    pages.append([d.id for d in store.find("c", limit=2, offset=4)])
+    assert [d for page in pages for d in page] == ["d1", "d2", "d3", "d4", "d5", "d6"]
 # --- created_at ------------------------------------------------------------------
 
 
@@ -239,6 +268,26 @@ def test_created_at_is_the_insert_time_on_every_read(store, monkeypatch):
     assert first.created_at == 1000.0
     assert store.find_by_id("notes", "n1") == first
     assert store.find("notes")[0].created_at == 1000.0
+
+
+def test_reinsert_keeps_its_place_but_takes_a_new_created_at(store, monkeypatch):
+    # Where #228 (keep the rowid on re-insert) meets #129 (store created_at):
+    # the upsert must leave the row where it was *and* refresh created_at,
+    # because that is the value insert() hands back to the caller.
+    clock = itertools.count(1000.0, 1000.0)
+    monkeypatch.setattr("edb.core.document._time.time", lambda: next(clock))
+
+    first = store.insert("c", {"v": 1}, doc_id="d1")
+    store.insert("c", {"v": 2}, doc_id="d2")
+    assert first.created_at == 1000.0
+
+    again = store.insert("c", {"v": 3}, doc_id="d1")
+
+    assert [d.id for d in store.find("c")] == ["d1", "d2"]  # place kept
+    stored = store.find_by_id("c", "d1")
+    assert stored.data == {"v": 3}
+    assert stored.created_at == again.created_at  # what insert() returned
+    assert stored.created_at != first.created_at  # and it moved on
 
 
 def test_update_keeps_created_at(store, monkeypatch):

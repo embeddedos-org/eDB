@@ -41,6 +41,10 @@
 - `FullTextSearch.index_document()` indexes a field that holds `None` as empty text. It used `str()`,
   so the field was stored as the word `None`: a search for `none` matched the document and its result
   reported the field as `"None"` instead of `""`.
+- `DocumentStore.insert()` for an existing `doc_id` updates the document in place. It used
+  `INSERT OR REPLACE`, which gave the document a new rowid and moved it to the end of `find()`, so a
+  client paging through it could skip one document and see another twice. `find()` also orders by
+  `rowid` now, so insertion order is stated by the query rather than left to the planner.
 - `GraphStore.add_node()` for an existing `node_id` updates the node in place. It used
   `INSERT OR REPLACE`, which gave the node a new rowid and moved it to the end of `find_nodes()`, so a
   client paging through it could skip one node and see another twice.
@@ -135,3 +139,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI pipeline
 - Architecture documentation and API reference
 - Contributing guidelines and security policy
+

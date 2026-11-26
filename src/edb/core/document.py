@@ -84,9 +84,17 @@ class DocumentStore:
         self._e.execute(
             "INSERT OR IGNORE INTO _doc_collections (name) VALUES (?)", (collection,)
         )
+        # An upsert keeps the rowid: INSERT OR REPLACE deleted the row and
+        # inserted a new one, moving a re-inserted document to the end of
+        # find() and breaking paging (eDB#228). Same stored data as before.
+        # Re-inserting is still a fresh write of the whole document, so
+        # created_at moves to the new time (eDB#129) -- it has to, because that
+        # is the value this method returns below.
         self._e.execute(
-            "INSERT OR REPLACE INTO _documents (doc_id, collection, data, created_at)"
-            " VALUES (?, ?, ?, ?)",
+            "INSERT INTO _documents (doc_id, collection, data, created_at)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(doc_id, collection) DO UPDATE SET"
+            " data = excluded.data, created_at = excluded.created_at",
             (did, collection, json.dumps(data), now),
         )
         self._e.commit()
@@ -111,8 +119,20 @@ class DocumentStore:
         # would silently return the wrong documents.
         if (limit is not None and limit < 0) or (offset is not None and offset < 0):
             raise ValueError("limit and offset must not be negative")
+        # ORDER BY rowid is insertion order (insert() keeps the rowid on
+        # re-insert), so a re-insert no longer moves a document to the end and
+        # consecutive pages stay consistent across one.
+        #
+        # That is the whole of the guarantee: these are offset pages over a live
+        # table, not a snapshot. Anything that changes which documents precede
+        # the boundary still shifts the pages after it -- a delete, or a write
+        # that changes whether an earlier document matches, since filter_dict
+        # and filter_fn are applied below before offset is taken. A caller that
+        # needs pages to be stable against concurrent writes needs a cursor, not
+        # an offset.
         rows = self._e.fetchall(
-            "SELECT * FROM _documents WHERE collection = ?", (collection,)
+            "SELECT * FROM _documents WHERE collection = ? ORDER BY rowid",
+            (collection,),
         )
         docs = [self._to_doc(r, collection) for r in rows]
         if filter_dict:
