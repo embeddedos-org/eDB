@@ -41,6 +41,18 @@
   prefix literally. It used SQL `LIKE`, so `_` and `%` in the prefix acted as wildcards and ASCII
   letters matched case-insensitively: `user_` also returned `userX`, `users` and `User_2`. The scan is
   now a key range (`key >= prefix AND key < next`), which also uses the key index.
+- `KeyValueStore.get()` and `get_many()` (and `GET /kv/{key}` and eBot's `get`) no longer delete a
+  value that another request writes while they are removing an expired key. They deleted the key
+  outright, so a `set()` landing between their read and their delete was lost; they now delete it
+  only while it is still expired. `get()` also returns that newly written value instead of `None`:
+  keeping the row but answering from the stale read made `GET /kv/{key}` report the key as holding
+  `null` while `exists()` said it was there.
+- `KeyValueStore.get_many()` removes every expired key it finds. Its cleanup `DELETE` named all of
+  them in one statement plus a bind for the current time, one variable more than the `SELECT` that
+  produced them is allowed to use, so a call holding exactly as many expired keys as SQLite permits
+  bind variables raised inside the transaction, was rolled back by a handler that swallowed the
+  error, and left every one of those rows in the database. The cleanup is now batched to the
+  connection's reported limit.
 - `DocumentStore` now stores each document's `created_at`. It was never saved, so `find()`,
   `find_by_id()`, `update()`, `GET /docs/{collection}/{doc_id}` and the document queries reported the
   time of the read as `created_at`, a different value on every call. `update()` keeps the original

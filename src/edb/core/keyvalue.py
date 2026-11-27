@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -17,6 +18,12 @@ CREATE TABLE IF NOT EXISTS _kv (
 """
 
 _EXPIRE_INDEX = "CREATE INDEX IF NOT EXISTS _kv_expires_at_idx ON _kv(expires_at)"
+
+# Fallback for keys per cleanup DELETE when the connection will not report its
+# own bind-variable limit. SQLITE_MAX_VARIABLE_NUMBER is 999 on SQLite builds
+# before 3.32 and 32766 from 3.32 on, so this is valid on either.
+_DELETE_BATCH_FALLBACK = 900
+
 
 def _prefix_upper_bound(prefix: str) -> str | None:
     """Smallest string greater than every string that starts with `prefix`.
@@ -60,6 +67,19 @@ class KeyValueStore:
     def _decode(self, s: str) -> Any:
         return json.loads(s)
 
+    def _delete_batch_size(self) -> int:
+        """Keys to name in one cleanup DELETE.
+
+        The DELETE binds one variable per key plus one for `now`, so it has one
+        less to spend than the SELECT that produced those keys. Ask the
+        connection what its limit actually is rather than assuming a build.
+        """
+        try:
+            limit = self._e.conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+        except (AttributeError, sqlite3.Error):
+            return _DELETE_BATCH_FALLBACK
+        return max(1, limit - 1)
+
     def _is_expired(self, expires_at: float | None) -> bool:
         return expires_at is not None and time.time() > expires_at
 
@@ -79,8 +99,24 @@ class KeyValueStore:
         if row is None:
             return None
         if self._is_expired(row["expires_at"]):
-            self.delete(key)
-            return None
+            # Delete the key only while it is still expired: another request may
+            # have written a new value since the SELECT above.
+            cur = self._e.execute(
+                "DELETE FROM _kv WHERE key = ? AND expires_at < ?", (key, time.time())
+            )
+            self._e.commit()
+            if cur.rowcount:
+                return None
+            # Nothing was deleted, so the expired row we read is not there any
+            # more: either someone else removed it, or a concurrent write
+            # replaced it with a live value. Returning None off the stale read
+            # would report the key as holding null while exists() says it is
+            # there, so read it again and answer from the current row.
+            row = self._e.execute(
+                "SELECT value, expires_at FROM _kv WHERE key = ?", (key,)
+            ).fetchone()
+            if row is None or self._is_expired(row["expires_at"]):
+                return None
         return self._decode(row["value"])
 
     def delete(self, key: str) -> bool:
@@ -154,10 +190,23 @@ class KeyValueStore:
                 result[r["key"]] = self._decode(r["value"])
 
         if keys_to_delete:
-            del_placeholders = ",".join(["?"] * len(keys_to_delete))
             self._e.execute("BEGIN TRANSACTION")
             try:
-                self._e.execute(f"DELETE FROM _kv WHERE key IN ({del_placeholders})", tuple(keys_to_delete))
+                # Only rows still expired: a value written since the SELECT stays.
+                # Batched because this DELETE binds one parameter per key plus
+                # one for `now`: the SELECT above can legally bind every
+                # variable SQLite allows, and the extra one would push this
+                # statement one over the limit, so a get_many() of exactly that
+                # many expired keys would raise and leave them all stored.
+                size = self._delete_batch_size()
+                for i in range(0, len(keys_to_delete), size):
+                    batch = keys_to_delete[i : i + size]
+                    del_placeholders = ",".join(["?"] * len(batch))
+                    self._e.execute(
+                        f"DELETE FROM _kv WHERE key IN ({del_placeholders})"
+                        " AND expires_at < ?",
+                        (*batch, now),
+                    )
                 self._e.execute("COMMIT")
             except Exception:
                 self._e.execute("ROLLBACK")
